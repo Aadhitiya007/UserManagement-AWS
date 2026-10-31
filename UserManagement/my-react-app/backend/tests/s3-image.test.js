@@ -1,4 +1,18 @@
 require("dotenv").config({ path: require("path").join(__dirname, "..", ".env") });
+
+// Ensure non-production mock AWS credentials and bucket for standalone unit tests
+if (!process.env.AWS_REGION || process.env.AWS_REGION === "your_region") {
+  process.env.AWS_REGION = "ap-south-2";
+}
+if (!process.env.AWS_S3_BUCKET_NAME || process.env.AWS_S3_BUCKET_NAME === "your_bucket_name") {
+  process.env.AWS_S3_BUCKET_NAME = "usermanagement-aws-aadhitiya-2026";
+}
+if (!process.env.AWS_ACCESS_KEY_ID || process.env.AWS_ACCESS_KEY_ID === "your_aws_access_key") {
+  process.env.AWS_ACCESS_KEY_ID = "mock-test-access-key-id";
+}
+if (!process.env.AWS_SECRET_ACCESS_KEY || process.env.AWS_SECRET_ACCESS_KEY === "your_aws_secret_key") {
+  process.env.AWS_SECRET_ACCESS_KEY = "mock-test-secret-access-key-987654";
+}
 const assert = require("assert");
 const {
   getProductWithImageUrl,
@@ -99,15 +113,41 @@ async function runTests() {
 
   // Test 8: S3 image removal on product deletion
   await testAsync("Safely purges and invokes S3 deletion for product images", async () => {
+    const s3 = require("../config/s3");
     const { deleteProductImageFile } = require("../controllers/productController");
-    // Verify it handles invalid / empty images cleanly
-    await deleteProductImageFile("");
-    await deleteProductImageFile("data:image/png;base64,123");
-    // Verify it handles canonical S3 key
-    await deleteProductImageFile("products/test-image-removal-key.jpg");
-    // Verify it handles full S3 URL
-    const bucket = process.env.AWS_S3_BUCKET_NAME || "test-bucket";
-    await deleteProductImageFile(`https://${bucket}.s3.amazonaws.com/products/test-legacy.jpg`);
+
+    // Mock s3.send to ensure 100% offline isolation without real network requests
+    const originalSend = s3.send;
+    const capturedCommands = [];
+    s3.send = async (cmd) => {
+      capturedCommands.push(cmd);
+      return { $metadata: { httpStatusCode: 204 } };
+    };
+
+    try {
+      // Verify it handles invalid / empty images cleanly without invoking S3
+      await deleteProductImageFile("");
+      await deleteProductImageFile("data:image/png;base64,123");
+      assert.strictEqual(capturedCommands.length, 0, "No S3 deletion command should be sent for empty or data URI");
+
+      // Verify it handles canonical S3 key
+      await deleteProductImageFile("products/test-image-removal-key.jpg");
+      assert.strictEqual(capturedCommands.length, 1, "Exactly one S3 deletion command should be sent");
+      assert.strictEqual(capturedCommands[0].constructor.name, "DeleteObjectCommand");
+      assert.strictEqual(capturedCommands[0].input.Key, "products/test-image-removal-key.jpg");
+      const bucket = process.env.AWS_S3_BUCKET_NAME || "usermanagement-aws-aadhitiya-2026";
+      assert.strictEqual(capturedCommands[0].input.Bucket, bucket);
+
+      // Verify it handles full S3 URL
+      await deleteProductImageFile(`https://${bucket}.s3.amazonaws.com/products/test-legacy.jpg`);
+      assert.strictEqual(capturedCommands.length, 2, "Second S3 deletion command should be sent");
+      assert.strictEqual(capturedCommands[1].constructor.name, "DeleteObjectCommand");
+      assert.strictEqual(capturedCommands[1].input.Key, "products/test-legacy.jpg");
+      assert.strictEqual(capturedCommands[1].input.Bucket, bucket);
+    } finally {
+      // Restore original s3.send method
+      s3.send = originalSend;
+    }
   });
 
   console.log(`\n=== Test Results: ${passed}/${total} passed ===`);

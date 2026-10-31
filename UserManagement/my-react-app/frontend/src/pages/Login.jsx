@@ -9,12 +9,17 @@ function Login() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [sessionExpired, setSessionExpired] = useState(() => {
+    return new URLSearchParams(window.location.search).get("expired") === "1";
+  });
+
   const navigate = useNavigate();
   const { switchUser } = useCart();
 
   async function handleSubmit(e) {
     e.preventDefault();
     setError("");
+    setSessionExpired(false);
     setLoading(true);
 
     try {
@@ -57,6 +62,12 @@ function Login() {
       <div className="container">
         <div className="form-card">
           <h2 style={{ marginBottom: "20px", textAlign: "center" }}>User Login</h2>
+
+          {sessionExpired && (
+            <div style={{ padding: "10px", background: "#fef3c7", color: "#92400e", borderRadius: "6px", marginBottom: "15px", border: "1px solid #fde68a" }}>
+              ⚠️ Your session has expired. Please sign in again.
+            </div>
+          )}
 
           {error && (
             <div style={{ padding: "10px", background: "#fee2e2", color: "#991b1b", borderRadius: "6px", marginBottom: "15px" }}>

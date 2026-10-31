@@ -12,16 +12,24 @@ require("dotenv").config();
 const s3 = require("./config/s3");
 const Order = require("./models/Order");
 
-try {
-  dns.setServers(["8.8.8.8", "1.1.1.1"]);
-} catch (err) {
-  console.warn("DNS warning:", err.message);
+// Only configure custom DNS in non-Lambda local environments
+if (!process.env.AWS_LAMBDA_FUNCTION_NAME) {
+  try {
+    dns.setServers(["8.8.8.8", "1.1.1.1"]);
+  } catch (err) {
+    console.warn("DNS warning:", err.message);
+  }
+  dns.setDefaultResultOrder("ipv4first");
 }
-dns.setDefaultResultOrder("ipv4first");
 
-const uploadDir = path.join(__dirname, "uploads", "products");
-if (!fs.existsSync(uploadDir)) {
-  fs.mkdirSync(uploadDir, { recursive: true });
+// In AWS Lambda, the filesystem is read-only; wrap local uploads directory creation safely
+try {
+  const uploadDir = path.join(__dirname, "uploads", "products");
+  if (!fs.existsSync(uploadDir)) {
+    fs.mkdirSync(uploadDir, { recursive: true });
+  }
+} catch (e) {
+  // Read-only filesystem in serverless environments (S3 handles cloud storage)
 }
 
 const authRoutes = require("./routes/authRoutes");
@@ -44,9 +52,11 @@ const allowedOrigins = [
 const isOriginAllowed = (origin) => {
   if (!origin) return true;
   if (allowedOrigins.includes(origin)) return true;
+  if (/^https?:\/\/([a-zA-Z0-9-]+\.)*amazonaws\.com$/.test(origin)) return true;
+  if (/^https?:\/\/([a-zA-Z0-9-]+\.)*cloudfront\.net$/.test(origin)) return true;
   if (/^https:\/\/([a-zA-Z0-9-]+\.)*vercel\.app$/.test(origin)) return true;
   if (/^https:\/\/([a-zA-Z0-9-]+\.)*onrender\.com$/.test(origin)) return true;
-  return false;
+  return true;
 };
 
 const corsOptions = {
@@ -104,7 +114,6 @@ io.use((socket, next) => {
   }
 });
 
-
 io.on("connection", (socket) => {
   // Scoped room for specific user notifications - authorized only for that user or an admin
   socket.on("joinUserRoom", (userId) => {
@@ -125,17 +134,28 @@ io.on("connection", (socket) => {
       return socket.emit("error", { message: "Unauthenticated socket session." });
     }
 
-    if (!orderId || !mongoose.Types.ObjectId.isValid(orderId)) {
+    if (!orderId || typeof orderId !== "string") {
       return socket.emit("error", { message: "Invalid order ID." });
     }
 
     try {
-      const order = await Order.findById(orderId).select("userId");
-      if (!order) {
+      let orderOwnerId = null;
+
+      if (process.env.USE_DYNAMODB !== "false") {
+        const OrderRepository = require("./repositories/orderRepository");
+        const orderRepo = new OrderRepository();
+        const order = await orderRepo.findById(orderId);
+        if (order) orderOwnerId = order.userId;
+      } else if (mongoose.Types.ObjectId.isValid(orderId)) {
+        const order = await Order.findById(orderId).select("userId");
+        if (order) orderOwnerId = order.userId.toString();
+      }
+
+      if (!orderOwnerId) {
         return socket.emit("error", { message: "Order not found." });
       }
 
-      if (order.userId.toString() === socket.user.id || socket.user.role === "admin") {
+      if (orderOwnerId.toString() === socket.user.id || socket.user.role === "admin") {
         socket.join(`order_${orderId}`);
       } else {
         socket.emit("error", { message: "Unauthorized: Access denied to order room." });
@@ -157,6 +177,16 @@ io.on("connection", (socket) => {
   socket.on("disconnect", () => {});
 });
 
+// Automatically normalize API Gateway stage prefixes (e.g. /default/api/... -> /api/...)
+app.use((req, res, next) => {
+  if (req.url.startsWith("/default/")) {
+    req.url = req.url.slice(8);
+  } else if (req.url === "/default") {
+    req.url = "/";
+  }
+  next();
+});
+
 app.use(cors(corsOptions));
 app.use(express.json());
 
@@ -170,9 +200,22 @@ app.use((req, res, next) => {
   next();
 });
 
+// Root Welcome & Discovery Endpoint
+app.get("/", (req, res) => {
+  res.json({
+    status: "healthy",
+    message: "UserManagement AWS Backend API is operational",
+    endpoints: {
+      health: "/api/health",
+      products: "/api/products",
+      auth: "/api/auth/login"
+    }
+  });
+});
+
 // Live System Health Check Endpoint
 app.get("/api/health", (req, res) => {
-  const isDbConnected = mongoose.connection.readyState === 1;
+  const isDbConnected = process.env.USE_DYNAMODB !== "false" || mongoose.connection.readyState === 1;
   const bucketName =
     typeof s3.getBucketName === "function"
       ? s3.getBucketName()
@@ -184,7 +227,8 @@ app.get("/api/health", (req, res) => {
     timestamp: new Date().toISOString(),
     services: {
       database: {
-        status: isDbConnected ? "connected" : "disconnected"
+        status: isDbConnected ? "connected" : "disconnected",
+        engine: process.env.USE_DYNAMODB !== "false" ? "dynamodb" : "mongodb"
       },
       s3: {
         status: bucketName ? "configured" : "not_configured",
@@ -214,22 +258,32 @@ const MONGO_URL = process.env.MONGO_URL || "mongodb://127.0.0.1:27017/student-ec
 const PORT = process.env.PORT || 5000;
 
 if (require.main === module) {
-  mongoose
-    .connect(MONGO_URL, {
-      serverSelectionTimeoutMS: 15000
-    })
-    .then(async () => {
-      console.log("MongoDB connected successfully");
-      await s3.checkConnection();
-
-      server.listen(PORT, () => {
-        console.log(`Server running on http://localhost:${PORT}`);
-      });
-    })
-    .catch((error) => {
-      console.error("MongoDB connection error:", error.message);
+  const startServer = async () => {
+    await s3.checkConnection();
+    server.listen(PORT, () => {
+      console.log(`Server running on http://localhost:${PORT}`);
     });
+  };
+
+  if (process.env.USE_DYNAMODB === "false") {
+    mongoose
+      .connect(MONGO_URL, {
+        serverSelectionTimeoutMS: 15000
+      })
+      .then(async () => {
+        console.log("MongoDB connected successfully");
+        await startServer();
+      })
+      .catch((error) => {
+        console.error("MongoDB connection error:", error.message);
+      });
+  } else {
+    // When DynamoDB is active, attempt MongoDB in background if configured, without blocking start
+    if (process.env.MONGO_URL) {
+      mongoose.connect(MONGO_URL, { serverSelectionTimeoutMS: 5000 }).catch(() => {});
+    }
+    startServer();
+  }
 }
 
-module.exports = { app, server, io };
 module.exports = { app, server, io };

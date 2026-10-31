@@ -2,6 +2,27 @@ const crypto = require("crypto");
 const mongoose = require("mongoose");
 const Order = require("../models/Order");
 const Product = require("../models/Product");
+const OrderRepository = require("../repositories/orderRepository");
+const ProductRepository = require("../repositories/productRepository");
+
+let activeOrderRepo = new OrderRepository();
+let activeProductRepo = new ProductRepository();
+
+const shouldUseDynamo = () => {
+  if (process.env.USE_DYNAMODB === "false") return false;
+  if (process.env.USE_DYNAMODB === "true" || process.env.DB_CLIENT === "dynamodb") return true;
+  return true;
+};
+
+exports.setOrderRepository = (repo) => {
+  activeOrderRepo = repo;
+};
+exports.getOrderRepository = () => activeOrderRepo;
+
+exports.setProductRepository = (repo) => {
+  activeProductRepo = repo;
+};
+exports.getProductRepository = () => activeProductRepo;
 
 /**
  * 1. Get Payment & Fulfillment Status for an Order
@@ -11,6 +32,30 @@ exports.getOrderPaymentStatus = async (req, res) => {
   try {
     const { orderId } = req.params;
 
+    if (shouldUseDynamo()) {
+      const order = await activeOrderRepo.findById(orderId);
+      if (!order) {
+        return res.status(404).json({ message: "Order not found" });
+      }
+
+      if (order.userId.toString() !== req.user.id && req.user.role !== "admin") {
+        return res.status(403).json({ message: "Access denied. Not your order." });
+      }
+
+      return res.json({
+        orderId: order._id,
+        totalAmount: order.totalAmount,
+        status: order.status,
+        paymentStatus: order.paymentStatus || "Pending",
+        paymentMethod: order.paymentMethod || "Card",
+        paymentDetails: order.paymentDetails || {},
+        paymentAttempts: order.paymentAttempts || [],
+        products: order.products,
+        createdAt: order.createdAt
+      });
+    }
+
+    // Fallback to legacy MongoDB
     if (!mongoose.Types.ObjectId.isValid(orderId)) {
       return res.status(400).json({ message: "Invalid order ID format." });
     }
@@ -20,7 +65,6 @@ exports.getOrderPaymentStatus = async (req, res) => {
       return res.status(404).json({ message: "Order not found" });
     }
 
-    // Authorization: User owns the order or is an administrator
     if (order.userId.toString() !== req.user.id && req.user.role !== "admin") {
       return res.status(403).json({ message: "Access denied. Not your order." });
     }
@@ -44,17 +88,114 @@ exports.getOrderPaymentStatus = async (req, res) => {
 /**
  * 2. Simulate Payment Outcome (Development / Testing Only)
  * POST /api/payment/simulate
- * Features:
- * - Strict ownership verification
- * - Rejection of cancelled orders
- * - Idempotent response if order is already paid
- * - Scoped real-time Socket.io notifications (no wide broadcasts)
  */
 exports.simulatePayment = async (req, res) => {
   try {
+    if (process.env.NODE_ENV === "production" && process.env.ENABLE_PAYMENT_SIMULATION !== "true") {
+      return res.status(403).json({
+        message: "Payment simulation is disabled in production environments."
+      });
+    }
+
     const { orderId, shouldSucceed, paymentMethod } = req.body;
 
-    if (!orderId || !mongoose.Types.ObjectId.isValid(orderId)) {
+    if (!orderId) {
+      return res.status(400).json({ message: "Valid Order ID is required." });
+    }
+
+    if (shouldUseDynamo()) {
+      const order = await activeOrderRepo.findById(orderId);
+      if (!order) {
+        return res.status(404).json({ message: "Order not found" });
+      }
+
+      if (order.userId.toString() !== req.user.id && req.user.role !== "admin") {
+        return res.status(403).json({ message: "Access denied. Not your order." });
+      }
+
+      if (order.status === "Cancelled") {
+        return res.status(400).json({
+          message: "Cannot process payment for a cancelled order."
+        });
+      }
+
+      if (order.paymentStatus === "Paid") {
+        return res.status(200).json({
+          success: true,
+          message: "Order is already paid",
+          order
+        });
+      }
+
+      const attemptId = `ATTEMPT_${Date.now()}_${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
+      const selectedMethod = paymentMethod || "Card";
+
+      if (shouldSucceed) {
+        const updated = await activeOrderRepo.updatePaymentStatus(orderId, {
+          paymentStatus: "Paid",
+          paymentMethod: selectedMethod,
+          paymentDetails: {
+            transactionId: attemptId,
+            paidAt: new Date().toISOString()
+          },
+          shouldAdvanceStatus: true
+        });
+
+        const io = req.app.get("io");
+        if (io) {
+          const payload = {
+            orderId: updated._id,
+            status: updated.status,
+            paymentStatus: updated.paymentStatus
+          };
+          io.to(`order_${updated._id}`)
+            .to(`user_${updated.userId}`)
+            .to("admins")
+            .emit("orderStatusUpdated", payload);
+        }
+
+        return res.status(200).json({
+          success: true,
+          message: "Payment simulated successfully",
+          attemptId,
+          order: updated
+        });
+      }
+
+      const failureReason = "Simulated issuer decline (Test simulation failure)";
+      const updated = await activeOrderRepo.updatePaymentStatus(orderId, {
+        paymentStatus: "Failed",
+        paymentMethod: selectedMethod,
+        failureReason,
+        paymentDetails: {
+          transactionId: attemptId,
+          failureReason
+        }
+      });
+
+      const io = req.app.get("io");
+      if (io) {
+        const payload = {
+          orderId: updated._id,
+          status: updated.status,
+          paymentStatus: updated.paymentStatus
+        };
+        io.to(`order_${updated._id}`)
+          .to(`user_${updated.userId}`)
+          .to("admins")
+          .emit("orderStatusUpdated", payload);
+      }
+
+      return res.status(400).json({
+        success: false,
+        message: "Payment failed as requested in simulation",
+        attemptId,
+        order: updated
+      });
+    }
+
+    // Fallback to legacy MongoDB
+    if (!mongoose.Types.ObjectId.isValid(orderId)) {
       return res.status(400).json({ message: "Valid Order ID is required." });
     }
 
@@ -63,19 +204,16 @@ exports.simulatePayment = async (req, res) => {
       return res.status(404).json({ message: "Order not found" });
     }
 
-    // Ownership check
     if (order.userId.toString() !== req.user.id && req.user.role !== "admin") {
       return res.status(403).json({ message: "Access denied. Not your order." });
     }
 
-    // Reject payment attempts for cancelled orders
     if (order.status === "Cancelled") {
       return res.status(400).json({
         message: "Cannot process payment for a cancelled order."
       });
     }
 
-    // Idempotency: Prevent duplicate charge processing if already paid
     if (order.paymentStatus === "Paid") {
       return res.status(200).json({
         success: true,
@@ -87,10 +225,8 @@ exports.simulatePayment = async (req, res) => {
     const attemptId = `ATTEMPT_${Date.now()}_${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
     const selectedMethod = paymentMethod || "Card";
 
-    // Outcome A: Simulated Success
     if (shouldSucceed) {
       order.paymentStatus = "Paid";
-      // Advance fulfillment status from Pending to Processing
       if (order.status === "Pending") {
         order.status = "Processing";
       }
@@ -109,7 +245,6 @@ exports.simulatePayment = async (req, res) => {
 
       await order.save();
 
-      // Emit real-time Socket.io update ONLY to authorized scoped rooms
       const io = req.app.get("io");
       if (io) {
         const payload = {
@@ -131,7 +266,6 @@ exports.simulatePayment = async (req, res) => {
       });
     }
 
-    // Outcome B: Simulated Failure
     const failureReason = "Simulated issuer decline (Test simulation failure)";
     order.paymentStatus = "Failed";
     order.paymentMethod = selectedMethod;
@@ -175,10 +309,7 @@ exports.simulatePayment = async (req, res) => {
 };
 
 /**
- * 3. Production Payment Webhook Handler with HMAC-SHA256 Signature Verification
- * POST /api/payment/webhook
- * Headers: x-webhook-signature
- * Body: { event, orderId, transactionId, amount }
+ * 3. Production Payment Webhook Handler
  */
 exports.handlePaymentWebhook = async (req, res) => {
   try {
@@ -193,14 +324,12 @@ exports.handlePaymentWebhook = async (req, res) => {
       return res.status(400).json({ message: "Missing webhook signature header." });
     }
 
-    // Payload string for HMAC verification
     const payloadString = typeof req.body === "string" ? req.body : JSON.stringify(req.body);
     const expectedSignature = crypto
       .createHmac("sha256", webhookSecret)
       .update(payloadString)
       .digest("hex");
 
-    // Timing-safe comparison to prevent timing attacks
     const sigBuffer = Buffer.from(signature);
     const expectedBuffer = Buffer.from(expectedSignature);
 
@@ -208,9 +337,72 @@ exports.handlePaymentWebhook = async (req, res) => {
       return res.status(401).json({ message: "Invalid webhook signature." });
     }
 
-    const { event, orderId, transactionId, amount } = req.body;
+    const { event, orderId, transactionId } = req.body;
 
-    if (!orderId || !mongoose.Types.ObjectId.isValid(orderId)) {
+    if (!orderId) {
+      return res.status(400).json({ message: "Invalid orderId in webhook payload." });
+    }
+
+    if (shouldUseDynamo()) {
+      const order = await activeOrderRepo.findById(orderId);
+      if (!order) {
+        return res.status(404).json({ message: "Order not found." });
+      }
+
+      if (order.paymentStatus === "Paid") {
+        return res.status(200).json({ received: true, message: "Order is already paid." });
+      }
+
+      if (order.status === "Cancelled") {
+        return res.status(400).json({ message: "Cannot apply payment to a cancelled order." });
+      }
+
+      if (event === "payment.succeeded") {
+        const updated = await activeOrderRepo.updatePaymentStatus(orderId, {
+          paymentStatus: "Paid",
+          paymentMethod: "Webhook",
+          paymentDetails: {
+            transactionId: transactionId || `TXN_${Date.now()}`,
+            paidAt: new Date().toISOString()
+          },
+          shouldAdvanceStatus: true
+        });
+
+        const io = req.app.get("io");
+        if (io) {
+          const payload = {
+            orderId: updated._id,
+            status: updated.status,
+            paymentStatus: updated.paymentStatus
+          };
+          io.to(`order_${updated._id}`)
+            .to(`user_${updated.userId}`)
+            .to("admins")
+            .emit("orderStatusUpdated", payload);
+        }
+
+        return res.status(200).json({ received: true, status: "Paid" });
+      }
+
+      if (event === "payment.failed") {
+        await activeOrderRepo.updatePaymentStatus(orderId, {
+          paymentStatus: "Failed",
+          paymentMethod: "Webhook",
+          failureReason: "Payment failed at gateway",
+          paymentDetails: {
+            transactionId: transactionId || `FAIL_${Date.now()}`,
+            failureReason: "Payment failed at gateway"
+          }
+        });
+
+        return res.status(200).json({ received: true, status: "Failed" });
+      }
+
+      return res.status(200).json({ received: true, message: "Unhandled event type." });
+    }
+
+    // Fallback to legacy MongoDB
+    if (!mongoose.Types.ObjectId.isValid(orderId)) {
       return res.status(400).json({ message: "Invalid orderId in webhook payload." });
     }
 
@@ -219,7 +411,6 @@ exports.handlePaymentWebhook = async (req, res) => {
       return res.status(404).json({ message: "Order not found." });
     }
 
-    // Idempotency: Ignore duplicate payment events if order is already Paid
     if (order.paymentStatus === "Paid") {
       return res.status(200).json({ received: true, message: "Order is already paid." });
     }
@@ -246,7 +437,6 @@ exports.handlePaymentWebhook = async (req, res) => {
 
       await order.save();
 
-      // Scoped socket broadcast
       const io = req.app.get("io");
       if (io) {
         const payload = {
@@ -289,14 +479,48 @@ exports.handlePaymentWebhook = async (req, res) => {
 };
 
 /**
- * 4. Retry an Unpaid or Failed Payment without creating duplicate orders
- * POST /api/payment/retry
+ * 4. Retry an Unpaid or Failed Payment
  */
 exports.retryPayment = async (req, res) => {
   try {
     const { orderId } = req.body;
 
-    if (!orderId || !mongoose.Types.ObjectId.isValid(orderId)) {
+    if (!orderId) {
+      return res.status(400).json({ message: "Valid Order ID is required" });
+    }
+
+    if (shouldUseDynamo()) {
+      const order = await activeOrderRepo.findById(orderId);
+      if (!order) {
+        return res.status(404).json({ message: "Order not found" });
+      }
+
+      if (order.userId.toString() !== req.user.id && req.user.role !== "admin") {
+        return res.status(403).json({ message: "Access denied. Not your order." });
+      }
+
+      if (order.status === "Cancelled") {
+        return res.status(400).json({ message: "Cannot retry payment for a cancelled order." });
+      }
+
+      if (order.paymentStatus === "Paid") {
+        return res.status(400).json({ message: "Cannot retry an order that is already paid." });
+      }
+
+      const updated = await activeOrderRepo.updatePaymentStatus(orderId, {
+        paymentStatus: "Pending",
+        paymentMethod: order.paymentMethod || "Card"
+      });
+
+      return res.json({
+        success: true,
+        message: "Order ready for payment retry",
+        order: updated
+      });
+    }
+
+    // Fallback to legacy MongoDB
+    if (!mongoose.Types.ObjectId.isValid(orderId)) {
       return res.status(400).json({ message: "Valid Order ID is required" });
     }
 
@@ -305,22 +529,18 @@ exports.retryPayment = async (req, res) => {
       return res.status(404).json({ message: "Order not found" });
     }
 
-    // Ownership check
     if (order.userId.toString() !== req.user.id && req.user.role !== "admin") {
       return res.status(403).json({ message: "Access denied. Not your order." });
     }
 
-    // Reject retry if order is cancelled
     if (order.status === "Cancelled") {
       return res.status(400).json({ message: "Cannot retry payment for a cancelled order." });
     }
 
-    // Reject retry if order is already paid
     if (order.paymentStatus === "Paid") {
       return res.status(400).json({ message: "Cannot retry an order that is already paid." });
     }
 
-    // Reset status to Pending for retry (preserving existing paymentAttempts history)
     order.paymentStatus = "Pending";
     await order.save();
 
@@ -336,12 +556,47 @@ exports.retryPayment = async (req, res) => {
 
 /**
  * 5. Cancel an unpaid checkout session and restore stock
- * POST /api/payment/cancel
  */
 exports.cancelPendingPayment = async (req, res) => {
   const { orderId } = req.body;
 
-  if (!orderId || !mongoose.Types.ObjectId.isValid(orderId)) {
+  if (!orderId) {
+    return res.status(400).json({ message: "Valid Order ID is required." });
+  }
+
+  if (shouldUseDynamo()) {
+    try {
+      const order = await activeOrderRepo.findById(orderId);
+      if (!order) {
+        return res.json({
+          success: true,
+          message: "Pending order cancelled, inventory restored, and order removed successfully."
+        });
+      }
+
+      await activeOrderRepo.cancelPendingPayment(orderId, req.user.id, activeProductRepo);
+
+      const io = req.app.get("io");
+      if (io) {
+        const payload = { orderId, cancelled: true };
+        io.to(`order_${orderId}`)
+          .to(`user_${order.userId}`)
+          .to("admins")
+          .emit("orderStatusUpdated", payload);
+      }
+
+      return res.json({
+        success: true,
+        message: "Pending order cancelled, inventory restored, and order removed successfully."
+      });
+    } catch (error) {
+      const statusCode = error.statusCode || 500;
+      return res.status(statusCode).json({ message: error.message });
+    }
+  }
+
+  // Fallback to legacy MongoDB
+  if (!mongoose.Types.ObjectId.isValid(orderId)) {
     return res.status(400).json({ message: "Valid Order ID is required." });
   }
 
@@ -353,24 +608,21 @@ exports.cancelPendingPayment = async (req, res) => {
     await session.withTransaction(async () => {
       const order = await Order.findById(orderId).session(session);
       if (!order) {
-        return; // Idempotent: already deleted
+        return;
       }
 
-      // Verify ownership
       if (order.userId.toString() !== req.user.id && req.user.role !== "admin") {
         const err = new Error("Access denied. Not your order.");
         err.statusCode = 403;
         throw err;
       }
 
-      // Do not allow cancelling if already Paid
       if (order.paymentStatus === "Paid") {
         const err = new Error("Cannot cancel an order that has already been paid.");
         err.statusCode = 400;
         throw err;
       }
 
-      // Atomic delete ensuring status is still unpaid
       const removed = await Order.findOneAndDelete(
         { _id: orderId, paymentStatus: { $ne: "Paid" } },
         { session }
@@ -380,7 +632,6 @@ exports.cancelPendingPayment = async (req, res) => {
         return;
       }
 
-      // Restore inventory stock atomically for each product
       if (Array.isArray(removed.products)) {
         for (const item of removed.products) {
           if (item.productId && item.quantity > 0) {

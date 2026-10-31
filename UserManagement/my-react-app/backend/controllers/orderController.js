@@ -2,6 +2,34 @@ const mongoose = require("mongoose");
 const Order = require("../models/Order");
 const Product = require("../models/Product");
 const User = require("../models/User");
+const OrderRepository = require("../repositories/orderRepository");
+const ProductRepository = require("../repositories/productRepository");
+const UserRepository = require("../repositories/userRepository");
+
+let activeOrderRepo = new OrderRepository();
+let activeProductRepo = new ProductRepository();
+let activeUserRepo = new UserRepository();
+
+const shouldUseDynamo = () => {
+  if (process.env.USE_DYNAMODB === "false") return false;
+  if (process.env.USE_DYNAMODB === "true" || process.env.DB_CLIENT === "dynamodb") return true;
+  return true;
+};
+
+exports.setOrderRepository = (repo) => {
+  activeOrderRepo = repo;
+};
+exports.getOrderRepository = () => activeOrderRepo;
+
+exports.setProductRepository = (repo) => {
+  activeProductRepo = repo;
+};
+exports.getProductRepository = () => activeProductRepo;
+
+exports.setUserRepository = (repo) => {
+  activeUserRepo = repo;
+};
+exports.getUserRepository = () => activeUserRepo;
 
 // Valid status lifecycle transitions
 const ALLOWED_TRANSITIONS = {
@@ -13,13 +41,7 @@ const ALLOWED_TRANSITIONS = {
 };
 
 /**
- * 1. Place a new Order using MongoDB Transactions
- * Requirements:
- * - Validate non-empty cart, valid ObjectId, positive integer quantity
- * - Consolidate duplicate product IDs
- * - Atomic conditional stock deduction inside session.withTransaction()
- * - Authoritative DB pricing only (never trust req.body.totalAmount)
- * - Automatic rollback via transaction on any failure (no manual compensation loops)
+ * 1. Place a new Order
  */
 exports.createOrder = async (req, res) => {
   const { products } = req.body;
@@ -29,7 +51,42 @@ exports.createOrder = async (req, res) => {
     return res.status(400).json({ message: "Cart is empty. Products array is required." });
   }
 
-  // 2. Validate product IDs and positive integer quantities; consolidate duplicates
+  if (shouldUseDynamo()) {
+    try {
+      const createdOrder = await activeOrderRepo.createOrderWithStockDeduction({
+        userId: req.user.id,
+        userName: req.user.name || "Customer",
+        userEmail: req.user.email,
+        rawProducts: products,
+        productRepo: activeProductRepo
+      });
+
+      // Notify connected admin rooms of new order placement
+      const io = req.app.get("io");
+      if (io && createdOrder) {
+        const payload = {
+          orderId: createdOrder._id,
+          userId: createdOrder.userId,
+          status: createdOrder.status,
+          paymentStatus: createdOrder.paymentStatus,
+          totalAmount: createdOrder.totalAmount
+        };
+        io.to("admins").to(`user_${createdOrder.userId}`).emit("orderCreated", payload);
+      }
+
+      return res.status(201).json({
+        message: "Order placed successfully",
+        order: createdOrder
+      });
+    } catch (error) {
+      const statusCode = error.statusCode || 500;
+      return res.status(statusCode).json({
+        message: error.message || "Failed to process order."
+      });
+    }
+  }
+
+  // Fallback to legacy MongoDB
   const consolidatedMap = new Map();
   for (const item of products) {
     if (!item.productId || !mongoose.Types.ObjectId.isValid(item.productId)) {
@@ -61,9 +118,7 @@ exports.createOrder = async (req, res) => {
       let calculatedTotal = 0;
       const validatedProducts = [];
 
-      // 3. Process each consolidated product atomically inside the transaction
       for (const item of consolidatedMap.values()) {
-        // Atomic conditional stock decrement: requires stock >= requestedQuantity
         const updatedProduct = await Product.findOneAndUpdate(
           { _id: item.productId, stock: { $gte: item.quantity } },
           { $inc: { stock: -item.quantity } },
@@ -71,7 +126,6 @@ exports.createOrder = async (req, res) => {
         );
 
         if (!updatedProduct) {
-          // Find the product without decrement to give an exact reason
           const existingProduct = await Product.findById(item.productId).session(session);
           if (!existingProduct) {
             const err = new Error(`Product with ID ${item.productId} not found.`);
@@ -85,9 +139,7 @@ exports.createOrder = async (req, res) => {
           throw err;
         }
 
-        // Price is authoritative from database; never accept client financial inputs
         calculatedTotal += updatedProduct.price * item.quantity;
-
         validatedProducts.push({
           productId: updatedProduct._id,
           name: updatedProduct.name,
@@ -97,7 +149,6 @@ exports.createOrder = async (req, res) => {
         });
       }
 
-      // 4. Create the order document inside the active transaction
       const orders = await Order.create(
         [
           {
@@ -116,7 +167,6 @@ exports.createOrder = async (req, res) => {
       createdOrder = orders[0];
     });
 
-    // Notify connected admin rooms of new order placement
     const io = req.app.get("io");
     if (io && createdOrder) {
       const payload = {
@@ -148,6 +198,12 @@ exports.createOrder = async (req, res) => {
  */
 exports.getUserOrders = async (req, res) => {
   try {
+    if (shouldUseDynamo()) {
+      const result = await activeOrderRepo.findByUserId(req.user.id);
+      return res.json(result.orders);
+    }
+
+    // Fallback to legacy MongoDB
     const orders = await Order.find({ userId: req.user.id }).sort({ createdAt: -1 });
     res.json(orders);
   } catch (error) {
@@ -160,6 +216,12 @@ exports.getUserOrders = async (req, res) => {
  */
 exports.getAllOrders = async (req, res) => {
   try {
+    if (shouldUseDynamo()) {
+      const result = await activeOrderRepo.listAllOrders({ status: req.query.status });
+      return res.json(result.orders);
+    }
+
+    // Fallback to legacy MongoDB
     const orders = await Order.find().sort({ createdAt: -1 });
     res.json(orders);
   } catch (error) {
@@ -169,11 +231,6 @@ exports.getAllOrders = async (req, res) => {
 
 /**
  * 4. Update Order Status with Strict Lifecycle Validation & Atomic Cancellation
- * Admin only. Transitions:
- * - Pending -> Processing / Cancelled
- * - Processing -> Shipped / Cancelled
- * - Shipped -> Delivered / Cancelled
- * - Delivered / Cancelled -> Terminal (no further transitions)
  */
 exports.updateOrderStatus = async (req, res) => {
   const { status } = req.body;
@@ -183,6 +240,36 @@ exports.updateOrderStatus = async (req, res) => {
     return res.status(400).json({ message: "Status is required." });
   }
 
+  if (shouldUseDynamo()) {
+    try {
+      const updatedOrder = await activeOrderRepo.updateStatusWithStockRestoration(id, status);
+
+      const io = req.app.get("io");
+      if (io && updatedOrder) {
+        const payload = {
+          orderId: updatedOrder._id,
+          status: updatedOrder.status,
+          paymentStatus: updatedOrder.paymentStatus
+        };
+        io.to(`order_${updatedOrder._id}`)
+          .to(`user_${updatedOrder.userId}`)
+          .to("admins")
+          .emit("orderStatusUpdated", payload);
+      }
+
+      return res.json({
+        message: "Order status updated successfully",
+        order: updatedOrder
+      });
+    } catch (error) {
+      const statusCode = error.statusCode || 500;
+      return res.status(statusCode).json({
+        message: error.message || "Failed to update order status."
+      });
+    }
+  }
+
+  // Fallback to legacy MongoDB
   if (!mongoose.Types.ObjectId.isValid(id)) {
     return res.status(400).json({ message: "Invalid order ID format." });
   }
@@ -193,7 +280,6 @@ exports.updateOrderStatus = async (req, res) => {
     let updatedOrder = null;
 
     await session.withTransaction(async () => {
-      // Find order inside transaction
       const order = await Order.findById(id).session(session);
       if (!order) {
         const err = new Error("Order not found");
@@ -201,7 +287,6 @@ exports.updateOrderStatus = async (req, res) => {
         throw err;
       }
 
-      // If requested status is same as current status
       if (order.status === status) {
         if (status === "Cancelled") {
           const err = new Error("Order is already cancelled.");
@@ -212,7 +297,6 @@ exports.updateOrderStatus = async (req, res) => {
         return;
       }
 
-      // Check valid lifecycle transition
       const allowedNext = ALLOWED_TRANSITIONS[order.status] || [];
       if (!allowedNext.includes(status)) {
         const err = new Error(
@@ -222,7 +306,6 @@ exports.updateOrderStatus = async (req, res) => {
         throw err;
       }
 
-      // Fulfillment transitions (Processing, Shipped, Delivered) require Paid status
       if (status !== "Cancelled" && order.paymentStatus !== "Paid") {
         const err = new Error(
           "Cannot advance status because payment is still Pending. Customer must complete payment first."
@@ -231,9 +314,7 @@ exports.updateOrderStatus = async (req, res) => {
         throw err;
       }
 
-      // Case 1: Cancellation with atomic inventory restoration
       if (status === "Cancelled") {
-        // Atomic conditional lock: ensures order is not already Cancelled or Delivered
         const lockedOrder = await Order.findOneAndUpdate(
           { _id: id, status: { $in: ["Pending", "Processing", "Shipped"] } },
           { $set: { status: "Cancelled" } },
@@ -246,7 +327,6 @@ exports.updateOrderStatus = async (req, res) => {
           throw err;
         }
 
-        // Restore inventory stock atomically inside the transaction
         for (const item of lockedOrder.products) {
           if (item.productId && item.quantity > 0) {
             await Product.findByIdAndUpdate(
@@ -259,14 +339,12 @@ exports.updateOrderStatus = async (req, res) => {
 
         updatedOrder = lockedOrder;
       } else {
-        // Case 2: Advancement to Processing, Shipped, or Delivered
         order.status = status;
         await order.save({ session });
         updatedOrder = order;
       }
     });
 
-    // Notify strictly authorized scoped rooms via Socket.io (no broad broadcast)
     const io = req.app.get("io");
     if (io && updatedOrder) {
       const payload = {
@@ -299,6 +377,22 @@ exports.updateOrderStatus = async (req, res) => {
  */
 exports.getAdminStats = async (req, res) => {
   try {
+    if (shouldUseDynamo()) {
+      const [totalUsers, totalProducts, stats] = await Promise.all([
+        activeUserRepo.count(),
+        activeProductRepo.count(),
+        activeOrderRepo.getStats()
+      ]);
+
+      return res.json({
+        totalUsers,
+        totalProducts,
+        totalOrders: stats.totalOrders,
+        totalRevenue: stats.totalRevenue
+      });
+    }
+
+    // Fallback to legacy MongoDB
     const [totalUsers, totalProducts, totalOrders, paidOrders] = await Promise.all([
       User.countDocuments(),
       Product.countDocuments(),
@@ -306,7 +400,6 @@ exports.getAdminStats = async (req, res) => {
       Order.find({ paymentStatus: "Paid" }).select("totalAmount")
     ]);
 
-    // Revenue strictly sums verified Paid orders
     const totalRevenue = paidOrders.reduce((sum, ord) => sum + (Number(ord.totalAmount) || 0), 0);
 
     res.json({

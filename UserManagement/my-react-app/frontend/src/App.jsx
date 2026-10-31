@@ -23,11 +23,18 @@ import AdminReviews from "./pages/admin/AdminReviews";
 import { useEffect } from "react";
 import { io } from "socket.io-client";
 import { API_URL } from "./config/api";
+import { isTokenExpired, handleForceLogout } from "./utils/auth";
 
 function App() {
   useEffect(() => {
     const token = localStorage.getItem("token");
     if (!token) return;
+
+    // Check on startup if stored token is already expired
+    if (isTokenExpired(token)) {
+      handleForceLogout(true);
+      return;
+    }
 
     const socket = io(API_URL, {
       auth: { token }
@@ -39,6 +46,17 @@ function App() {
 
     socket.on("disconnect", () => {
       console.log("Disconnected from WebSocket");
+    });
+
+    socket.on("connect_error", (err) => {
+      if (
+        err.message &&
+        (err.message.includes("Invalid or expired token") ||
+          err.message.includes("Authentication error"))
+      ) {
+        console.warn("WebSocket authentication error. Logging out.");
+        handleForceLogout(true);
+      }
     });
 
     return () => {

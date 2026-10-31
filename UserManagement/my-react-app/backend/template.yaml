@@ -1,0 +1,97 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: UserManagement-AWS Serverless Backend API (Node.js 20.x, Express on AWS Lambda, Amazon API Gateway, Amazon DynamoDB, Amazon S3)
+
+Parameters:
+  JwtSecret:
+    Type: String
+    Description: Secret key used for signing and verifying JSON Web Tokens (JWT).
+    NoEcho: true
+    MinLength: 16
+    Default: 'ChangeThisToAStrongRandomProductionSecret2026'
+
+  S3BucketName:
+    Type: String
+    Description: S3 bucket name for product images and uploads.
+    Default: 'usermanagement-aws-aadhitiya-2026'
+
+  LambdaExecutionRoleArn:
+    Type: String
+    Description: Existing IAM execution role ARN for the Lambda function.
+    Default: 'arn:aws:iam::ACCOUNT_ID:role/UserManagementAWS-Lambda-ExecutionRole'
+
+Globals:
+  Function:
+    Timeout: 30
+    MemorySize: 1024
+    Runtime: nodejs20.x
+    Architectures:
+      - x86_64
+    Environment:
+      Variables:
+        NODE_ENV: production
+        USE_DYNAMODB: 'true'
+        AWS_REGION: !Ref AWS::Region
+        AWS_S3_BUCKET_NAME: !Ref S3BucketName
+        DYNAMODB_USERS_TABLE: 'UserManagementAWS-Users'
+        DYNAMODB_PRODUCTS_TABLE: 'UserManagementAWS-Products'
+        DYNAMODB_ORDERS_TABLE: 'UserManagementAWS-Orders'
+        JWT_SECRET: !Ref JwtSecret
+
+Resources:
+  # HTTP API (API Gateway v2) with CORS support
+  HttpApi:
+    Type: AWS::Serverless::HttpApi
+    Properties:
+      Name: UserManagementAWS-API
+      CorsConfiguration:
+        AllowOrigins:
+          - '*'
+        AllowHeaders:
+          - 'Content-Type'
+          - 'Authorization'
+          - 'X-Webhook-Signature'
+          - 'x-webhook-signature'
+        AllowMethods:
+          - 'GET'
+          - 'POST'
+          - 'PUT'
+          - 'DELETE'
+          - 'PATCH'
+          - 'OPTIONS'
+        MaxAge: 300
+
+  # Express Application running inside AWS Lambda
+  ExpressLambdaFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: UserManagementAWS-Backend
+      CodeUri: .
+      Handler: lambda.handler
+      Description: UserManagement-AWS Express API Handler
+      Role: !Ref LambdaExecutionRoleArn
+      Events:
+        ProxyApiRoot:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /
+            Method: ANY
+        ProxyApiGreedy:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /{proxy+}
+            Method: ANY
+
+Outputs:
+  ApiEndpoint:
+    Description: HTTP API Gateway endpoint invoke URL (use this as VITE_API_URL for frontend)
+    Value: !Sub 'https://${HttpApi}.execute-api.${AWS::Region}.amazonaws.com'
+    Export:
+      Name: UserManagementAWS-ApiUrl
+
+  LambdaFunctionArn:
+    Description: Lambda Function ARN
+    Value: !GetAtt ExpressLambdaFunction.Arn
+

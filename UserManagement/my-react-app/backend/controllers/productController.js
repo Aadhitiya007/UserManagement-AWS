@@ -1,5 +1,8 @@
 const Product = require("../models/Product");
 const Order = require("../models/Order");
+const ProductRepository = require("../repositories/productRepository");
+const OrderRepository = require("../repositories/orderRepository");
+
 const {
   PutObjectCommand,
   GetObjectCommand,
@@ -11,6 +14,25 @@ const {
 const s3 = require("../config/s3");
 const fs = require("fs");
 const path = require("path");
+
+let activeProductRepo = new ProductRepository();
+let activeOrderRepo = new OrderRepository();
+
+const shouldUseDynamo = () => {
+  if (process.env.USE_DYNAMODB === "false") return false;
+  if (process.env.USE_DYNAMODB === "true" || process.env.DB_CLIENT === "dynamodb") return true;
+  return true;
+};
+
+exports.setProductRepository = (repo) => {
+  activeProductRepo = repo;
+};
+exports.getProductRepository = () => activeProductRepo;
+
+exports.setOrderRepository = (repo) => {
+  activeOrderRepo = repo;
+};
+exports.getOrderRepository = () => activeOrderRepo;
 
 // In-memory cache for presigned URLs: key -> { url, expiresAt }
 const presignedCache = new Map();
@@ -57,7 +79,7 @@ async function getProductWithImageUrl(product) {
 
   const region = typeof s3.getRegion === "function"
     ? s3.getRegion()
-    : (process.env.AWS_REGION );
+    : (process.env.AWS_REGION || "ap-south-2");
 
   let key = "";
 
@@ -150,9 +172,39 @@ setInterval(() => {
 
 exports.getProducts = async (req, res) => {
   try {
-    const { search, page, limit } = req.query;
-    let query = {};
+    const { search, page, limit, category } = req.query;
 
+    if (shouldUseDynamo()) {
+      if (page) {
+        const pageNum = parseInt(page, 10) || 1;
+        const limitNum = parseInt(limit, 10) || 12;
+        const result = await activeProductRepo.list({
+          category,
+          search,
+          limit: limitNum
+        });
+        const total = await activeProductRepo.count();
+        const productsWithImageUrls = await getProductsWithImageUrls(result.products);
+
+        return res.json({
+          products: productsWithImageUrls,
+          total,
+          page: pageNum,
+          totalPages: Math.ceil(total / limitNum) || 1
+        });
+      }
+
+      const result = await activeProductRepo.list({
+        category,
+        search,
+        limit: 100
+      });
+      const productsWithImageUrls = await getProductsWithImageUrls(result.products);
+      return res.json(productsWithImageUrls);
+    }
+
+    // Fallback to legacy MongoDB
+    let query = {};
     if (search) {
       const sanitizedSearch = search.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
       const searchRegex = new RegExp(sanitizedSearch, "i");
@@ -165,7 +217,6 @@ exports.getProducts = async (req, res) => {
       };
     }
 
-    // Pagination
     if (page) {
       const pageNum = parseInt(page, 10) || 1;
       const limitNum = parseInt(limit, 10) || 12;
@@ -197,7 +248,19 @@ exports.getProducts = async (req, res) => {
 
 exports.getProductById = async (req, res) => {
   try {
-    const product = await Product.findById(req.params.id);
+    const productId = req.params.id;
+
+    if (shouldUseDynamo()) {
+      const product = await activeProductRepo.findById(productId);
+      if (!product) {
+        return res.status(404).json({ message: "Product not found" });
+      }
+      const productWithUrl = await getProductWithImageUrl(product);
+      return res.json(productWithUrl);
+    }
+
+    // Fallback to legacy MongoDB
+    const product = await Product.findById(productId);
     if (!product) {
       return res.status(404).json({ message: "Product not found" });
     }
@@ -210,7 +273,8 @@ exports.getProductById = async (req, res) => {
 
 // Helper: Upload to S3 with local disk fallback and sanitized error logging
 async function processProductImage(file) {
-  const cleanName = `${Date.now()}-${file.originalname.replace(/\s+/g, "-")}`;
+  const sanitizedBase = path.basename(file.originalname).replace(/[^a-zA-Z0-9.-]/g, "_");
+  const cleanName = `${Date.now()}-${sanitizedBase}`;
   const fileName = `products/${cleanName}`;
   const bucketName = typeof s3.getBucketName === "function"
     ? s3.getBucketName()
@@ -221,8 +285,8 @@ async function processProductImage(file) {
   let s3Error = null;
 
   try {
-    if (!bucketName || !process.env.AWS_ACCESS_KEY_ID || !process.env.AWS_SECRET_ACCESS_KEY) {
-      throw new Error("AWS S3 environment variables not configured");
+    if (!bucketName) {
+      throw new Error("AWS_S3_BUCKET_NAME is not configured");
     }
 
     const command = new PutObjectCommand({
@@ -234,7 +298,6 @@ async function processProductImage(file) {
 
     await s3.send(command);
 
-    // Store the canonical key in MongoDB, not a public S3 URL
     image = fileName;
     uploadSource = "s3";
     console.log("✓ AWS S3 Upload Successful. Object Key:", fileName);
@@ -258,9 +321,9 @@ async function processProductImage(file) {
 
 exports.createProduct = async (req, res) => {
   try {
-    const { name, description, price, category, stock } = req.body;
+    const { name, description, price, category, stock, mrp, warranty } = req.body;
 
-    if (!name || !price || !category) {
+    if (!name || price === undefined || !category) {
       return res.status(400).json({ message: "Name, price, and category are required" });
     }
 
@@ -278,6 +341,28 @@ exports.createProduct = async (req, res) => {
       uploadSource = "url";
     }
 
+    if (shouldUseDynamo()) {
+      const created = await activeProductRepo.create({
+        name,
+        description: description || "",
+        price: Number(price),
+        category,
+        stock: Number(stock || 0),
+        image,
+        mrp: mrp !== undefined ? Number(mrp) : undefined,
+        warranty
+      });
+
+      const productWithUrl = await getProductWithImageUrl(created);
+      return res.status(201).json({
+        message: "Product created successfully",
+        product: productWithUrl,
+        uploadSource,
+        s3Error
+      });
+    }
+
+    // Fallback to legacy MongoDB
     const product = await Product.create({
       name,
       description: description || "",
@@ -296,7 +381,7 @@ exports.createProduct = async (req, res) => {
       s3Error
     });
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    res.status(error.statusCode || 500).json({ message: error.message });
   }
 };
 
@@ -367,9 +452,57 @@ async function deleteProductImageFile(image) {
 
 exports.updateProduct = async (req, res) => {
   try {
-    const { name, description, price, category, stock } = req.body;
-    const product = await Product.findById(req.params.id);
+    const { name, description, price, category, stock, mrp, warranty } = req.body;
+    const productId = req.params.id;
 
+    if (shouldUseDynamo()) {
+      const existing = await activeProductRepo.findById(productId);
+      if (!existing) {
+        return res.status(404).json({ message: "Product not found" });
+      }
+
+      let image = existing.image;
+      let uploadSource = "none";
+      let s3Error = null;
+
+      if (req.file) {
+        if (existing.image) {
+          await deleteProductImageFile(existing.image);
+        }
+        const result = await processProductImage(req.file);
+        image = result.image;
+        uploadSource = result.uploadSource;
+        s3Error = result.s3Error;
+      } else if (req.body.image && req.body.image !== existing.image) {
+        if (existing.image) {
+          await deleteProductImageFile(existing.image);
+        }
+        image = req.body.image;
+        uploadSource = "url";
+      }
+
+      const updateFields = { image };
+      if (name !== undefined) updateFields.name = name;
+      if (description !== undefined) updateFields.description = description;
+      if (price !== undefined) updateFields.price = Number(price);
+      if (category !== undefined) updateFields.category = category;
+      if (stock !== undefined) updateFields.stock = Number(stock);
+      if (mrp !== undefined) updateFields.mrp = Number(mrp);
+      if (warranty !== undefined) updateFields.warranty = warranty;
+
+      const updated = await activeProductRepo.update(productId, updateFields);
+      const productWithUrl = await getProductWithImageUrl(updated);
+
+      return res.json({
+        message: "Product updated successfully",
+        product: productWithUrl,
+        uploadSource,
+        s3Error
+      });
+    }
+
+    // Fallback to legacy MongoDB
+    const product = await Product.findById(productId);
     if (!product) {
       return res.status(404).json({ message: "Product not found" });
     }
@@ -384,7 +517,6 @@ exports.updateProduct = async (req, res) => {
     let s3Error = null;
 
     if (req.file) {
-      // If replacing an existing image, delete the old image file from S3 / disk
       if (product.image) {
         await deleteProductImageFile(product.image);
       }
@@ -410,31 +542,56 @@ exports.updateProduct = async (req, res) => {
       s3Error
     });
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    res.status(error.statusCode || 500).json({ message: error.message });
   }
 };
 
 exports.deleteProduct = async (req, res) => {
   try {
-    const product = await Product.findById(req.params.id);
+    const productId = req.params.id;
+
+    if (shouldUseDynamo()) {
+      const product = await activeProductRepo.findById(productId);
+      if (!product) {
+        return res.status(404).json({ message: "Product not found" });
+      }
+
+      if (product.image) {
+        await deleteProductImageFile(product.image);
+      }
+
+      await activeProductRepo.delete(productId);
+      return res.json({ message: "Product deleted successfully" });
+    }
+
+    // Fallback to legacy MongoDB
+    const product = await Product.findById(productId);
     if (!product) {
       return res.status(404).json({ message: "Product not found" });
     }
 
-    // Clean up S3 image and local files before deleting product document
     if (product.image) {
       await deleteProductImageFile(product.image);
     }
 
-    await Product.findByIdAndDelete(req.params.id);
+    await Product.findByIdAndDelete(productId);
     res.json({ message: "Product deleted successfully" });
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    res.status(error.statusCode || 500).json({ message: error.message });
   }
 };
 
 exports.checkPurchaseEligibility = async (req, res) => {
   try {
+    const productId = req.params.id;
+    const userId = req.user.id;
+
+    if (shouldUseDynamo()) {
+      const canReview = await activeOrderRepo.checkReviewEligibility(userId, productId);
+      return res.json({ canReview: Boolean(canReview) });
+    }
+
+    // Fallback to legacy MongoDB
     const hasPurchased = await Order.findOne({
       userId: req.user.id,
       "products.productId": req.params.id,
@@ -451,12 +608,42 @@ exports.checkPurchaseEligibility = async (req, res) => {
 exports.createProductReview = async (req, res) => {
   try {
     const { rating, comment } = req.body;
+    const productId = req.params.id;
+    const userId = req.user.id;
 
     if (!rating || !comment) {
       return res.status(400).json({ message: "Rating and comment are required" });
     }
 
-    const product = await Product.findById(req.params.id);
+    if (shouldUseDynamo()) {
+      const product = await activeProductRepo.findById(productId);
+      if (!product) {
+        return res.status(404).json({ message: "Product not found" });
+      }
+
+      const canReview = await activeOrderRepo.checkReviewEligibility(userId, productId);
+      if (!canReview) {
+        return res.status(403).json({
+          message: "Only verified buyers with completed payment can submit a review."
+        });
+      }
+
+      const updated = await activeProductRepo.addReview(productId, {
+        userId,
+        userName: req.user.name || "Customer",
+        rating: Number(rating),
+        comment
+      });
+
+      const productWithUrl = await getProductWithImageUrl(updated);
+      return res.status(201).json({
+        message: "Review submitted successfully",
+        product: productWithUrl
+      });
+    }
+
+    // Fallback to legacy MongoDB
+    const product = await Product.findById(productId);
     if (!product) {
       return res.status(404).json({ message: "Product not found" });
     }
@@ -499,12 +686,28 @@ exports.createProductReview = async (req, res) => {
 
     res.status(201).json({ message: "Review submitted successfully", product: productWithUrl });
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    res.status(error.statusCode || 500).json({ message: error.message });
   }
 };
 
 exports.getAllReviews = async (req, res) => {
   try {
+    if (shouldUseDynamo()) {
+      const allReviews = await activeProductRepo.getAllReviews();
+      const reviewsWithUrls = await Promise.all(
+        allReviews.map(async (r) => {
+          const dummyProduct = { image: r.productImage };
+          const withUrl = await getProductWithImageUrl(dummyProduct);
+          return {
+            ...r,
+            productImage: withUrl.imageUrl || withUrl.image
+          };
+        })
+      );
+      return res.json(reviewsWithUrls);
+    }
+
+    // Fallback to legacy MongoDB
     const products = await Product.find({ "reviews.0": { $exists: true } });
     const allReviews = [];
 
@@ -527,9 +730,7 @@ exports.getAllReviews = async (req, res) => {
       }
     }
 
-    // Sort newest first
     allReviews.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
-
     res.json(allReviews);
   } catch (error) {
     res.status(500).json({ message: error.message });
@@ -540,6 +741,16 @@ exports.deleteProductReview = async (req, res) => {
   try {
     const { productId, reviewId } = req.params;
 
+    if (shouldUseDynamo()) {
+      const result = await activeProductRepo.deleteReview(productId, reviewId);
+      return res.json({
+        message: "Review deleted successfully",
+        reviewsCount: result.reviewsCount,
+        rating: result.rating
+      });
+    }
+
+    // Fallback to legacy MongoDB
     const product = await Product.findById(productId);
     if (!product) {
       return res.status(404).json({ message: "Product not found" });
@@ -550,11 +761,9 @@ exports.deleteProductReview = async (req, res) => {
       return res.status(404).json({ message: "Review not found" });
     }
 
-    // Filter out the review
     product.reviews = product.reviews.filter((r) => r._id.toString() !== reviewId);
     product.reviewsCount = product.reviews.length;
 
-    // Recalculate average rating
     if (product.reviews.length > 0) {
       const totalStars = product.reviews.reduce((sum, item) => sum + item.rating, 0);
       product.rating = Math.round((totalStars / product.reviews.length) * 10) / 10;
@@ -570,7 +779,7 @@ exports.deleteProductReview = async (req, res) => {
       rating: product.rating
     });
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    res.status(error.statusCode || 500).json({ message: error.message });
   }
 };
 
