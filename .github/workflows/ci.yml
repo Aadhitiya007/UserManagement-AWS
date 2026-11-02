@@ -2,7 +2,7 @@ name: MERN Project CI
 
 on:
   push:
-    branches: [master, feature/product-routes]
+    branches: [master,  feature/product-routes, feature/aws-integration]
   pull_request:
     branches: [master]
   workflow_dispatch:
@@ -24,11 +24,9 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: npm
-          cache-dependency-path: UserManagement/my-react-app/frontend/package-lock.json
 
       - name: Install dependencies
-        run: npm ci
+        run: npm install
 
       - name: Run ESLint
         run: npm run lint
@@ -37,7 +35,7 @@ jobs:
         run: npm run build
 
   backend-ci:
-    name: Backend Syntax Check
+    name: Backend Syntax & Tests
     runs-on: ubuntu-latest
 
     defaults:
@@ -52,12 +50,9 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: npm
-          cache-dependency-path: UserManagement/my-react-app/backend/package-lock.json
 
       - name: Install dependencies
-        run: npm ci
+        run: npm install
 
       - name: Check server syntax
         run: node --check server.js
-
