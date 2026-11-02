@@ -1,7 +1,6 @@
-const Product = require("../models/Product");
-const Order = require("../models/Order");
 const ProductRepository = require("../repositories/productRepository");
 const OrderRepository = require("../repositories/orderRepository");
+const { calculateProductDiscount } = require("../utils/discountCalculator");
 
 const {
   PutObjectCommand,
@@ -17,12 +16,6 @@ const path = require("path");
 
 let activeProductRepo = new ProductRepository();
 let activeOrderRepo = new OrderRepository();
-
-const shouldUseDynamo = () => {
-  if (process.env.USE_DYNAMODB === "false") return false;
-  if (process.env.USE_DYNAMODB === "true" || process.env.DB_CLIENT === "dynamodb") return true;
-  return true;
-};
 
 exports.setProductRepository = (repo) => {
   activeProductRepo = repo;
@@ -55,731 +48,474 @@ async function getProductWithImageUrl(product) {
       ? item.image.trim()
       : "";
 
-  // Default: preserve the stored image value
   item.imageUrl = image;
 
-  // Empty or Base64 images do not need S3 signing
-  if (!image || image.startsWith("data:") || image.startsWith("blob:")) {
+  // Enrich product with server-side discount calculation
+  const discountInfo = calculateProductDiscount(item);
+  item.effectivePrice = discountInfo.effectivePrice;
+  item.discountAmount = discountInfo.discountAmount;
+  item.discountPercent = discountInfo.discountPercent;
+  item.isDiscountActive = discountInfo.isDiscountActive;
+
+  // Base64 data URIs
+  if (image.startsWith("data:image/")) {
     return item;
   }
 
-  // Local fallback uploads
-  if (image.startsWith("uploads/")) {
-    item.imageUrl = `/${image}`;
-    return item;
-  }
-  if (image.startsWith("/uploads/")) {
-    item.imageUrl = image;
+  // Local filesystem uploads
+  if (image.startsWith("/uploads/") || image.startsWith("uploads/")) {
+    item.imageUrl = image.startsWith("/") ? image : `/${image}`;
     return item;
   }
 
-  const bucketName = typeof s3.getBucketName === "function"
-    ? s3.getBucketName()
-    : (process.env.AWS_S3_BUCKET_NAME || "");
-
-  const region = typeof s3.getRegion === "function"
-    ? s3.getRegion()
-    : (process.env.AWS_REGION || "ap-south-2");
-
-  let key = "";
-
-  // New canonical format: products/filename.jpg
+  // Extract S3 object key
+  let s3Key = null;
   if (image.startsWith("products/")) {
-    key = image.replace(/\.\./g, "");
-  } else if (image.startsWith("http://") || image.startsWith("https://")) {
+    s3Key = image;
+  } else if (/^https?:\/\/.*\.amazonaws\.com\//.test(image)) {
     try {
       const parsed = new URL(image);
-
-      const isConfiguredBucket =
-        bucketName &&
-        (
-          parsed.hostname === `${bucketName}.s3.${region}.amazonaws.com` ||
-          parsed.hostname === `${bucketName}.s3.amazonaws.com` ||
-          parsed.hostname.startsWith(`${bucketName}.s3.`) ||
-          parsed.hostname.includes(bucketName)
-        );
-
-      if (isConfiguredBucket) {
-        key = decodeURIComponent(
-          parsed.pathname.replace(/^\/+/, "")
-        ).replace(/\.\./g, "");
-      } else if (parsed.hostname.includes(".s3.") || parsed.hostname.includes(".amazonaws.com")) {
-        const pathname = decodeURIComponent(parsed.pathname).replace(/^\/+/, "");
-        if (pathname.startsWith("products/")) {
-          key = pathname.replace(/\.\./g, "");
-        } else {
-          item.imageUrl = "";
-        }
+      const pathname = parsed.pathname.replace(/^\/+/, "");
+      const segments = pathname.split("/");
+      const bucket = s3.getBucketName();
+      if (segments[0] === bucket) {
+        s3Key = segments.slice(1).join("/");
+      } else {
+        s3Key = pathname;
       }
-    } catch {
-      // Keep the original URL if parsing fails
+    } catch (_) {
+      s3Key = null;
     }
   }
 
-  if (key && bucketName) {
-    try {
-      const now = Date.now();
-      const cached = presignedCache.get(key);
-      if (cached && cached.expiresAt > now) {
-        item.imageUrl = cached.url;
-        item.image = cached.url;
-        return item;
-      }
+  // External non-S3 URLs
+  if (!s3Key) {
+    return item;
+  }
 
+  // Check cache for valid presigned URL (with 5-minute safety buffer)
+  const cached = presignedCache.get(s3Key);
+  const now = Date.now();
+  if (cached && cached.expiresAt > now + 300 * 1000) {
+    item.imageUrl = cached.url;
+    return item;
+  }
+
+  // Generate new presigned GET URL (1-hour expiration)
+  try {
+    const s3Client = s3.getS3Client();
+    const bucket = s3.getBucketName();
+    if (s3Client && bucket) {
       const command = new GetObjectCommand({
-        Bucket: bucketName,
-        Key: key
+        Bucket: bucket,
+        Key: s3Key
       });
-
-      const signedUrl = await getSignedUrl(s3, command, { expiresIn: 3600 });
-
-      // Cache for 50 minutes (safety buffer before 60-min expiry)
-      presignedCache.set(key, {
-        url: signedUrl,
-        expiresAt: now + 50 * 60 * 1000
+      const signed = await getSignedUrl(s3Client, command, { expiresIn: 3600 });
+      presignedCache.set(s3Key, {
+        url: signed,
+        expiresAt: now + 3600 * 1000
       });
-
-      item.imageUrl = signedUrl;
-      item.image = signedUrl;
-    } catch (error) {
-      console.warn(`Unable to sign S3 image URL for key "${key}":`, error.message);
-      item.imageUrl = "";
+      item.imageUrl = signed;
     }
-  } else if (key && !bucketName) {
-    item.imageUrl = "";
+  } catch (err) {
+    console.warn(`[S3] Presigning failed for key "${s3Key}":`, err.message);
   }
 
   return item;
 }
 
 /**
- * Applies the presigned URL helper across an array of products.
+ * Batch resolve image URLs and discounts for multiple products concurrently
  */
 async function getProductsWithImageUrls(products) {
   if (!Array.isArray(products)) return [];
   return Promise.all(products.map(getProductWithImageUrl));
 }
 
-// Periodic cleanup of expired cache entries
+/**
+ * Process uploaded product image (supports S3 upload or local storage)
+ */
+async function processProductImage(file) {
+  if (!file) return null;
+
+  const s3Client = s3.getS3Client();
+  const bucket = s3.getBucketName();
+
+  if (s3Client && bucket) {
+    const fileExt = path.extname(file.originalname) || ".jpg";
+    const objectKey = `products/${Date.now()}-${Math.round(Math.random() * 1e9)}${fileExt}`;
+
+    let body = file.buffer;
+    if (!body && file.path && fs.existsSync(file.path)) {
+      body = fs.readFileSync(file.path);
+    }
+
+    if (body) {
+      const command = new PutObjectCommand({
+        Bucket: bucket,
+        Key: objectKey,
+        Body: body,
+        ContentType: file.mimetype || "image/jpeg"
+      });
+
+      await s3Client.send(command);
+
+      // Clean up temporary local file if written by diskStorage
+      if (file.path && fs.existsSync(file.path)) {
+        try {
+          fs.unlinkSync(file.path);
+        } catch (_) {}
+      }
+
+      return objectKey;
+    }
+  }
+
+  // Fallback to local storage if S3 is unconfigured
+  if (file.filename) {
+    return `/uploads/products/${file.filename}`;
+  }
+  return null;
+}
+
+/**
+ * Safely delete an S3 or local product image file
+ */
+async function deleteProductImageFile(imagePath) {
+  if (!imagePath || typeof imagePath !== "string") return;
+
+  const s3Client = s3.getS3Client();
+  const bucket = s3.getBucketName();
+
+  let s3Key = null;
+  if (imagePath.startsWith("products/")) {
+    s3Key = imagePath;
+  } else if (/^https?:\/\/.*\.amazonaws\.com\//.test(imagePath)) {
+    try {
+      const parsed = new URL(imagePath);
+      const pathname = parsed.pathname.replace(/^\/+/, "");
+      const segments = pathname.split("/");
+      if (segments[0] === bucket) {
+        s3Key = segments.slice(1).join("/");
+      } else {
+        s3Key = pathname;
+      }
+    } catch (_) {
+      s3Key = null;
+    }
+  }
+
+  if (s3Key && s3Client && bucket) {
+    try {
+      await s3Client.send(
+        new DeleteObjectCommand({
+          Bucket: bucket,
+          Key: s3Key
+        })
+      );
+      presignedCache.delete(s3Key);
+      console.log(`[S3] Object Deleted: ${s3Key}`);
+      return;
+    } catch (err) {
+      console.warn(`[S3] Failed to delete object "${s3Key}":`, err.message);
+    }
+  }
+
+  // Local filesystem cleanup
+  if (imagePath.startsWith("/uploads/") || imagePath.startsWith("uploads/")) {
+    try {
+      const cleanRelative = imagePath.replace(/^\/+/, "");
+      const fullPath = path.join(__dirname, "..", cleanRelative);
+      if (fs.existsSync(fullPath)) {
+        fs.unlinkSync(fullPath);
+      }
+    } catch (err) {
+      console.warn(`[FileSystem] Failed to delete local image "${imagePath}":`, err.message);
+    }
+  }
+}
+
+// Invalidate cache every 15 minutes
 setInterval(() => {
   const now = Date.now();
-  for (const [key, value] of presignedCache.entries()) {
-    if (value.expiresAt <= now) {
+  for (const [key, val] of presignedCache.entries()) {
+    if (val.expiresAt <= now) {
       presignedCache.delete(key);
     }
   }
 }, 15 * 60 * 1000).unref();
 
+/**
+ * 1. Get Products with Optional Category, Search & Pagination
+ * GET /api/products
+ */
 exports.getProducts = async (req, res) => {
   try {
     const { search, page, limit, category } = req.query;
 
-    if (shouldUseDynamo()) {
-      if (page) {
-        const pageNum = parseInt(page, 10) || 1;
-        const limitNum = parseInt(limit, 10) || 12;
-        const result = await activeProductRepo.list({
-          category,
-          search,
-          limit: limitNum
-        });
-        const total = await activeProductRepo.count();
-        const productsWithImageUrls = await getProductsWithImageUrls(result.products);
-
-        return res.json({
-          products: productsWithImageUrls,
-          total,
-          page: pageNum,
-          totalPages: Math.ceil(total / limitNum) || 1
-        });
-      }
-
-      const result = await activeProductRepo.list({
-        category,
-        search,
-        limit: 100
-      });
-      const productsWithImageUrls = await getProductsWithImageUrls(result.products);
-      return res.json(productsWithImageUrls);
-    }
-
-    // Fallback to legacy MongoDB
-    let query = {};
-    if (search) {
-      const sanitizedSearch = search.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-      const searchRegex = new RegExp(sanitizedSearch, "i");
-      query = {
-        $or: [
-          { name: searchRegex },
-          { category: searchRegex },
-          { description: searchRegex }
-        ]
-      };
-    }
-
     if (page) {
       const pageNum = parseInt(page, 10) || 1;
       const limitNum = parseInt(limit, 10) || 12;
-      const skip = (pageNum - 1) * limitNum;
-
-      const total = await Product.countDocuments(query);
-      const rawProducts = await Product.find(query)
-        .sort({ createdAt: -1 })
-        .skip(skip)
-        .limit(limitNum);
-
-      const productsWithImageUrls = await getProductsWithImageUrls(rawProducts);
+      const result = await activeProductRepo.list({
+        category,
+        search,
+        limit: limitNum
+      });
+      const total = await activeProductRepo.count();
+      const productsWithImageUrls = await getProductsWithImageUrls(result.products);
 
       return res.json({
         products: productsWithImageUrls,
         total,
         page: pageNum,
-        totalPages: Math.ceil(total / limitNum)
+        totalPages: Math.ceil(total / limitNum) || 1
       });
     }
 
-    const rawProducts = await Product.find(query).sort({ createdAt: -1 });
-    const productsWithImageUrls = await getProductsWithImageUrls(rawProducts);
-    res.json(productsWithImageUrls);
-  } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
-};
-
-exports.getProductById = async (req, res) => {
-  try {
-    const productId = req.params.id;
-
-    if (shouldUseDynamo()) {
-      const product = await activeProductRepo.findById(productId);
-      if (!product) {
-        return res.status(404).json({ message: "Product not found" });
-      }
-      const productWithUrl = await getProductWithImageUrl(product);
-      return res.json(productWithUrl);
-    }
-
-    // Fallback to legacy MongoDB
-    const product = await Product.findById(productId);
-    if (!product) {
-      return res.status(404).json({ message: "Product not found" });
-    }
-    const productWithUrl = await getProductWithImageUrl(product);
-    res.json(productWithUrl);
-  } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
-};
-
-// Helper: Upload to S3 with local disk fallback and sanitized error logging
-async function processProductImage(file) {
-  const sanitizedBase = path.basename(file.originalname).replace(/[^a-zA-Z0-9.-]/g, "_");
-  const cleanName = `${Date.now()}-${sanitizedBase}`;
-  const fileName = `products/${cleanName}`;
-  const bucketName = typeof s3.getBucketName === "function"
-    ? s3.getBucketName()
-    : (process.env.AWS_S3_BUCKET_NAME || "");
-
-  let image = "";
-  let uploadSource = "s3";
-  let s3Error = null;
-
-  try {
-    if (!bucketName) {
-      throw new Error("AWS_S3_BUCKET_NAME is not configured");
-    }
-
-    const command = new PutObjectCommand({
-      Bucket: bucketName,
-      Key: fileName,
-      Body: file.buffer,
-      ContentType: file.mimetype
-    });
-
-    await s3.send(command);
-
-    image = fileName;
-    uploadSource = "s3";
-    console.log("✓ AWS S3 Upload Successful. Object Key:", fileName);
-  } catch (err) {
-    s3Error = "S3 upload failed, stored locally";
-    uploadSource = "local";
-    console.warn("⚠️ S3 upload unavailable, falling back to local disk storage:", err.message);
-
-    const localDir = path.join(__dirname, "..", "uploads", "products");
-    if (!fs.existsSync(localDir)) {
-      fs.mkdirSync(localDir, { recursive: true });
-    }
-    const localPath = path.join(localDir, cleanName);
-    await fs.promises.writeFile(localPath, file.buffer);
-
-    image = `uploads/products/${cleanName}`;
-  }
-
-  return { image, uploadSource, s3Error };
-}
-
-exports.createProduct = async (req, res) => {
-  try {
-    const { name, description, price, category, stock, mrp, warranty } = req.body;
-
-    if (!name || price === undefined || !category) {
-      return res.status(400).json({ message: "Name, price, and category are required" });
-    }
-
-    let image = "";
-    let uploadSource = "none";
-    let s3Error = null;
-
-    if (req.file) {
-      const result = await processProductImage(req.file);
-      image = result.image;
-      uploadSource = result.uploadSource;
-      s3Error = result.s3Error;
-    } else if (req.body.image) {
-      image = req.body.image;
-      uploadSource = "url";
-    }
-
-    if (shouldUseDynamo()) {
-      const created = await activeProductRepo.create({
-        name,
-        description: description || "",
-        price: Number(price),
-        category,
-        stock: Number(stock || 0),
-        image,
-        mrp: mrp !== undefined ? Number(mrp) : undefined,
-        warranty
-      });
-
-      const productWithUrl = await getProductWithImageUrl(created);
-      return res.status(201).json({
-        message: "Product created successfully",
-        product: productWithUrl,
-        uploadSource,
-        s3Error
-      });
-    }
-
-    // Fallback to legacy MongoDB
-    const product = await Product.create({
-      name,
-      description: description || "",
-      price: Number(price),
+    const result = await activeProductRepo.list({
       category,
-      stock: Number(stock || 0),
-      image
+      search,
+      limit: 100
     });
-
-    const productWithUrl = await getProductWithImageUrl(product);
-
-    res.status(201).json({
-      message: "Product created successfully",
-      product: productWithUrl,
-      uploadSource,
-      s3Error
-    });
+    const productsWithImageUrls = await getProductsWithImageUrls(result.products);
+    return res.json(productsWithImageUrls);
   } catch (error) {
-    res.status(error.statusCode || 500).json({ message: error.message });
+    res.status(500).json({ message: error.message });
   }
 };
 
 /**
- * Deletes a product image from AWS S3 (or local disk if stored locally).
- * Also purges the corresponding presigned URL cache entry.
+ * 2. Get Single Product by ID
+ * GET /api/products/:id
  */
-async function deleteProductImageFile(image) {
-  if (!image || typeof image !== "string") return;
-  const trimmed = image.trim();
-  if (!trimmed || trimmed.startsWith("data:") || trimmed.startsWith("blob:")) return;
-
-  const bucketName = typeof s3.getBucketName === "function"
-    ? s3.getBucketName()
-    : (process.env.AWS_S3_BUCKET_NAME || "");
-
-  let s3Key = "";
-
-  // 1. Check canonical S3 key: products/filename.jpg
-  if (trimmed.startsWith("products/")) {
-    s3Key = trimmed.replace(/\.\./g, "");
-  } else if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) {
-    try {
-      const parsed = new URL(trimmed);
-      const pathname = decodeURIComponent(parsed.pathname.replace(/^\/+/, "")).replace(/\.\./g, "");
-      if (pathname.startsWith("products/")) {
-        s3Key = pathname;
-      } else if (parsed.hostname.includes("amazonaws.com") || parsed.hostname.includes(".s3.")) {
-        const idx = pathname.indexOf("products/");
-        if (idx !== -1) {
-          s3Key = pathname.substring(idx);
-        }
-      }
-    } catch {
-      // Ignore URL parsing errors
+exports.getProductById = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const product = await activeProductRepo.findById(id);
+    if (!product) {
+      return res.status(404).json({ message: "Product not found" });
     }
+    const withUrl = await getProductWithImageUrl(product);
+    return res.json(withUrl);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
   }
+};
 
-  // If S3 key found, delete object from S3 bucket
-  if (s3Key && bucketName) {
-    try {
-      const deleteCmd = new DeleteObjectCommand({
-        Bucket: bucketName,
-        Key: s3Key
-      });
-      await s3.send(deleteCmd);
-      presignedCache.delete(s3Key);
-      console.log(`✓ AWS S3 Object Deleted: ${s3Key}`);
-    } catch (err) {
-      console.warn(`⚠️ AWS S3 object deletion warning for "${s3Key}":`, err.message);
-    }
-  }
-
-  // 2. If image is stored in local uploads directory
-  if (trimmed.startsWith("uploads/") || trimmed.startsWith("/uploads/")) {
-    try {
-      const localRelPath = trimmed.replace(/^\/+/, "");
-      const localFullPath = path.join(__dirname, "..", localRelPath);
-      if (fs.existsSync(localFullPath)) {
-        await fs.promises.unlink(localFullPath);
-        console.log(`✓ Local product image file deleted: ${localRelPath}`);
-      }
-    } catch (err) {
-      console.warn("⚠️ Failed to delete local image file:", err.message);
-    }
-  }
-}
-
-exports.updateProduct = async (req, res) => {
+/**
+ * 3. Create Product (Admin)
+ * POST /api/products
+ */
+exports.createProduct = async (req, res) => {
   try {
     const { name, description, price, category, stock, mrp, warranty } = req.body;
-    const productId = req.params.id;
 
-    if (shouldUseDynamo()) {
-      const existing = await activeProductRepo.findById(productId);
-      if (!existing) {
-        return res.status(404).json({ message: "Product not found" });
-      }
-
-      let image = existing.image;
-      let uploadSource = "none";
-      let s3Error = null;
-
-      if (req.file) {
-        if (existing.image) {
-          await deleteProductImageFile(existing.image);
-        }
-        const result = await processProductImage(req.file);
-        image = result.image;
-        uploadSource = result.uploadSource;
-        s3Error = result.s3Error;
-      } else if (req.body.image && req.body.image !== existing.image) {
-        if (existing.image) {
-          await deleteProductImageFile(existing.image);
-        }
-        image = req.body.image;
-        uploadSource = "url";
-      }
-
-      const updateFields = { image };
-      if (name !== undefined) updateFields.name = name;
-      if (description !== undefined) updateFields.description = description;
-      if (price !== undefined) updateFields.price = Number(price);
-      if (category !== undefined) updateFields.category = category;
-      if (stock !== undefined) updateFields.stock = Number(stock);
-      if (mrp !== undefined) updateFields.mrp = Number(mrp);
-      if (warranty !== undefined) updateFields.warranty = warranty;
-
-      const updated = await activeProductRepo.update(productId, updateFields);
-      const productWithUrl = await getProductWithImageUrl(updated);
-
-      return res.json({
-        message: "Product updated successfully",
-        product: productWithUrl,
-        uploadSource,
-        s3Error
+    if (!name || price === undefined || !category || stock === undefined) {
+      return res.status(400).json({
+        message: "Name, price, category, and stock are required."
       });
     }
 
-    // Fallback to legacy MongoDB
-    const product = await Product.findById(productId);
-    if (!product) {
+    const parsedPrice = Number(price);
+    const parsedStock = Number(stock);
+    const parsedMrp = mrp !== undefined && mrp !== "" ? Number(mrp) : parsedPrice;
+
+    if (isNaN(parsedPrice) || parsedPrice < 0) {
+      return res.status(400).json({ message: "Price must be a positive number." });
+    }
+
+    if (isNaN(parsedStock) || !Number.isInteger(parsedStock) || parsedStock < 0) {
+      return res.status(400).json({ message: "Stock must be a non-negative integer." });
+    }
+
+    let imageValue = "";
+    if (req.file) {
+      imageValue = await processProductImage(req.file);
+    } else if (req.body.image) {
+      imageValue = req.body.image.trim();
+    }
+
+    const createdProduct = await activeProductRepo.create({
+      name,
+      description: description || "",
+      price: parsedPrice,
+      category,
+      stock: parsedStock,
+      mrp: parsedMrp,
+      warranty: warranty || "1 Year Manufacturer Warranty",
+      image: imageValue,
+      discount: req.body.discount || { isActive: false, value: 0 }
+    });
+
+    const withUrl = await getProductWithImageUrl(createdProduct);
+    return res.status(201).json({
+      message: "Product created successfully",
+      product: withUrl
+    });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+/**
+ * 4. Update Product (Admin)
+ * PUT /api/products/:id
+ */
+exports.updateProduct = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const existing = await activeProductRepo.findById(id);
+    if (!existing) {
       return res.status(404).json({ message: "Product not found" });
     }
 
-    if (name) product.name = name;
-    if (description !== undefined) product.description = description;
-    if (price !== undefined) product.price = Number(price);
-    if (category) product.category = category;
-    if (stock !== undefined) product.stock = Number(stock);
-
-    let uploadSource = "none";
-    let s3Error = null;
+    const updates = { ...req.body };
+    if (updates.price !== undefined) updates.price = Number(updates.price);
+    if (updates.stock !== undefined) updates.stock = Number(updates.stock);
+    if (updates.mrp !== undefined) updates.mrp = Number(updates.mrp);
 
     if (req.file) {
-      if (product.image) {
-        await deleteProductImageFile(product.image);
+      if (existing.image) {
+        await deleteProductImageFile(existing.image);
       }
-      const result = await processProductImage(req.file);
-      product.image = result.image;
-      uploadSource = result.uploadSource;
-      s3Error = result.s3Error;
-    } else if (req.body.image && req.body.image !== product.image) {
-      if (product.image) {
-        await deleteProductImageFile(product.image);
-      }
-      product.image = req.body.image;
-      uploadSource = "url";
+      updates.image = await processProductImage(req.file);
     }
 
-    await product.save();
-    const productWithUrl = await getProductWithImageUrl(product);
-
-    res.json({
+    const updated = await activeProductRepo.update(id, updates);
+    const withUrl = await getProductWithImageUrl(updated);
+    return res.json({
       message: "Product updated successfully",
-      product: productWithUrl,
-      uploadSource,
-      s3Error
+      product: withUrl
     });
   } catch (error) {
-    res.status(error.statusCode || 500).json({ message: error.message });
+    res.status(error.statusCode || error.status || 500).json({ message: error.message });
   }
 };
 
+/**
+ * 5. Delete Product (Admin)
+ * DELETE /api/products/:id
+ */
 exports.deleteProduct = async (req, res) => {
   try {
-    const productId = req.params.id;
-
-    if (shouldUseDynamo()) {
-      const product = await activeProductRepo.findById(productId);
-      if (!product) {
-        return res.status(404).json({ message: "Product not found" });
-      }
-
-      if (product.image) {
-        await deleteProductImageFile(product.image);
-      }
-
-      await activeProductRepo.delete(productId);
-      return res.json({ message: "Product deleted successfully" });
-    }
-
-    // Fallback to legacy MongoDB
-    const product = await Product.findById(productId);
-    if (!product) {
+    const { id } = req.params;
+    const existing = await activeProductRepo.findById(id);
+    if (!existing) {
       return res.status(404).json({ message: "Product not found" });
     }
 
-    if (product.image) {
-      await deleteProductImageFile(product.image);
+    if (existing.image) {
+      await deleteProductImageFile(existing.image);
     }
 
-    await Product.findByIdAndDelete(productId);
-    res.json({ message: "Product deleted successfully" });
-  } catch (error) {
-    res.status(error.statusCode || 500).json({ message: error.message });
-  }
-};
-
-exports.checkPurchaseEligibility = async (req, res) => {
-  try {
-    const productId = req.params.id;
-    const userId = req.user.id;
-
-    if (shouldUseDynamo()) {
-      const canReview = await activeOrderRepo.checkReviewEligibility(userId, productId);
-      return res.json({ canReview: Boolean(canReview) });
-    }
-
-    // Fallback to legacy MongoDB
-    const hasPurchased = await Order.findOne({
-      userId: req.user.id,
-      "products.productId": req.params.id,
-      paymentStatus: "Paid",
-      status: { $ne: "Cancelled" }
-    });
-
-    res.json({ canReview: Boolean(hasPurchased) });
+    await activeProductRepo.delete(id);
+    return res.json({ message: "Product deleted successfully" });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
 };
 
-exports.createProductReview = async (req, res) => {
+/**
+ * 6. Check Review Eligibility for Customer
+ * GET /api/products/:id/can-review
+ */
+exports.canUserReview = async (req, res) => {
   try {
-    const { rating, comment } = req.body;
-    const productId = req.params.id;
+    const { id: productId } = req.params;
     const userId = req.user.id;
+
+    const hasPurchased = await activeOrderRepo.checkReviewEligibility(userId, productId);
+    return res.json({ canReview: hasPurchased });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+/**
+ * 7. Add Product Review
+ * POST /api/products/:id/reviews
+ */
+exports.addProductReview = async (req, res) => {
+  try {
+    const { id: productId } = req.params;
+    const { rating, comment } = req.body;
+    const userId = req.user.id;
+    const userName = req.user.name || "Customer";
 
     if (!rating || !comment) {
-      return res.status(400).json({ message: "Rating and comment are required" });
+      return res.status(400).json({ message: "Rating and comment are required." });
     }
 
-    if (shouldUseDynamo()) {
-      const product = await activeProductRepo.findById(productId);
-      if (!product) {
-        return res.status(404).json({ message: "Product not found" });
-      }
-
-      const canReview = await activeOrderRepo.checkReviewEligibility(userId, productId);
-      if (!canReview) {
-        return res.status(403).json({
-          message: "Only verified buyers with completed payment can submit a review."
-        });
-      }
-
-      const updated = await activeProductRepo.addReview(productId, {
-        userId,
-        userName: req.user.name || "Customer",
-        rating: Number(rating),
-        comment
-      });
-
-      const productWithUrl = await getProductWithImageUrl(updated);
-      return res.status(201).json({
-        message: "Review submitted successfully",
-        product: productWithUrl
-      });
+    const numericRating = Number(rating);
+    if (isNaN(numericRating) || numericRating < 1 || numericRating > 5) {
+      return res.status(400).json({ message: "Rating must be between 1 and 5." });
     }
 
-    // Fallback to legacy MongoDB
-    const product = await Product.findById(productId);
-    if (!product) {
-      return res.status(404).json({ message: "Product not found" });
-    }
-
-    const hasPurchased = await Order.findOne({
-      userId: req.user.id,
-      "products.productId": req.params.id,
-      paymentStatus: "Paid",
-      status: { $ne: "Cancelled" }
-    });
-
+    const hasPurchased = await activeOrderRepo.checkReviewEligibility(userId, productId);
     if (!hasPurchased) {
       return res.status(403).json({
-        message: "Only verified buyers with completed payment can submit a review."
+        message: "Only verified buyers who have purchased this product can leave a review."
       });
     }
 
-    const alreadyReviewed = product.reviews.find(
-      (r) => r.userId.toString() === req.user.id.toString()
-    );
+    const result = await activeProductRepo.addReview(productId, {
+      userId,
+      userName,
+      rating: numericRating,
+      comment: comment.trim()
+    });
 
-    if (alreadyReviewed) {
-      alreadyReviewed.rating = Number(rating);
-      alreadyReviewed.comment = comment;
-    } else {
-      product.reviews.push({
-        userId: req.user.id,
-        userName: req.user.name || "Customer",
-        rating: Number(rating),
-        comment
-      });
-    }
-
-    product.reviewsCount = product.reviews.length;
-    const totalStars = product.reviews.reduce((sum, item) => sum + item.rating, 0);
-    product.rating = Math.round((totalStars / product.reviews.length) * 10) / 10;
-
-    await product.save();
-    const productWithUrl = await getProductWithImageUrl(product);
-
-    res.status(201).json({ message: "Review submitted successfully", product: productWithUrl });
+    return res.status(201).json({
+      message: "Review added successfully",
+      rating: result.rating,
+      reviewsCount: result.reviewsCount,
+      reviews: result.reviews,
+      product: result
+    });
   } catch (error) {
-    res.status(error.statusCode || 500).json({ message: error.message });
+    const statusCode = error.statusCode || error.status || 500;
+    res.status(statusCode).json({ message: error.message });
   }
 };
 
-exports.getAllReviews = async (req, res) => {
+/**
+ * 8. Get All Product Reviews (Admin Moderation)
+ * GET /api/products/reviews/all
+ */
+exports.getAllProductReviews = async (req, res) => {
   try {
-    if (shouldUseDynamo()) {
-      const allReviews = await activeProductRepo.getAllReviews();
-      const reviewsWithUrls = await Promise.all(
-        allReviews.map(async (r) => {
-          const dummyProduct = { image: r.productImage };
-          const withUrl = await getProductWithImageUrl(dummyProduct);
-          return {
-            ...r,
-            productImage: withUrl.imageUrl || withUrl.image
-          };
-        })
-      );
-      return res.json(reviewsWithUrls);
-    }
-
-    // Fallback to legacy MongoDB
-    const products = await Product.find({ "reviews.0": { $exists: true } });
-    const allReviews = [];
-
-    for (const product of products) {
-      if (Array.isArray(product.reviews)) {
-        const itemWithUrl = await getProductWithImageUrl(product);
-        product.reviews.forEach((review) => {
-          allReviews.push({
-            _id: review._id,
-            productId: product._id,
-            productName: product.name,
-            productImage: itemWithUrl.imageUrl || itemWithUrl.image,
-            userId: review.userId,
-            userName: review.userName,
-            rating: review.rating,
-            comment: review.comment,
-            createdAt: review.createdAt
-          });
-        });
-      }
-    }
-
-    allReviews.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
-    res.json(allReviews);
+    const allReviews = await activeProductRepo.getAllReviews();
+    const reviewsWithUrls = await Promise.all(
+      allReviews.map(async (r) => {
+        const dummyProduct = { image: r.productImage };
+        const withUrl = await getProductWithImageUrl(dummyProduct);
+        return {
+          ...r,
+          productImage: withUrl.imageUrl || withUrl.image
+        };
+      })
+    );
+    return res.json(reviewsWithUrls);
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
 };
 
+/**
+ * 9. Delete Product Review (Admin Moderation)
+ * DELETE /api/products/:productId/reviews/:reviewId
+ */
 exports.deleteProductReview = async (req, res) => {
   try {
     const { productId, reviewId } = req.params;
-
-    if (shouldUseDynamo()) {
-      const result = await activeProductRepo.deleteReview(productId, reviewId);
-      return res.json({
-        message: "Review deleted successfully",
-        reviewsCount: result.reviewsCount,
-        rating: result.rating
-      });
-    }
-
-    // Fallback to legacy MongoDB
-    const product = await Product.findById(productId);
-    if (!product) {
-      return res.status(404).json({ message: "Product not found" });
-    }
-
-    const reviewExists = product.reviews.some((r) => r._id.toString() === reviewId);
-    if (!reviewExists) {
-      return res.status(404).json({ message: "Review not found" });
-    }
-
-    product.reviews = product.reviews.filter((r) => r._id.toString() !== reviewId);
-    product.reviewsCount = product.reviews.length;
-
-    if (product.reviews.length > 0) {
-      const totalStars = product.reviews.reduce((sum, item) => sum + item.rating, 0);
-      product.rating = Math.round((totalStars / product.reviews.length) * 10) / 10;
-    } else {
-      product.rating = 0;
-    }
-
-    await product.save();
-
-    res.json({
+    const result = await activeProductRepo.deleteReview(productId, reviewId);
+    return res.json({
       message: "Review deleted successfully",
-      reviewsCount: product.reviewsCount,
-      rating: product.rating
+      reviewsCount: result.reviewsCount,
+      rating: result.rating
     });
   } catch (error) {
-    res.status(error.statusCode || 500).json({ message: error.message });
+    res.status(error.statusCode || error.status || 500).json({ message: error.message });
   }
 };
 
@@ -788,3 +524,8 @@ exports.getProductWithImageUrl = getProductWithImageUrl;
 exports.getProductsWithImageUrls = getProductsWithImageUrls;
 exports.processProductImage = processProductImage;
 exports.deleteProductImageFile = deleteProductImageFile;
+
+// Aliases for route/test consistency
+exports.checkPurchaseEligibility = exports.canUserReview;
+exports.createProductReview = exports.addProductReview;
+exports.getAllReviews = exports.getAllProductReviews;

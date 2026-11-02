@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { useParams, Link, useNavigate } from "react-router-dom";
 import Navbar from "../components/Navbar";
 import { useCart } from "../context/CartContext";
+import { useWishlist } from "../context/WishlistContext";
 import { API_URL } from "../config/api";
 import { throttle } from "../utils/throttle";
 
@@ -22,6 +23,7 @@ function ProductDetail() {
   const [reviewMessage, setReviewMessage] = useState("");
 
   const { addToCart } = useCart();
+  const { isInWishlist, toggleWishlist } = useWishlist();
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -301,26 +303,63 @@ function ProductDetail() {
               <button
                 onClick={handleAddToCart}
                 disabled={isOutOfStock}
-                className={`btn ${addedFeedback ? "btn-success" : "btn-outline"}`}
+                className={`btn ${isOutOfStock ? "btn-out-of-stock" : (addedFeedback ? "btn-success" : "btn-outline")}`}
                 style={{
                   flex: 1,
                   padding: "12px",
                   transition: "all 0.25s ease",
-                  background: addedFeedback ? "#16a34a" : "",
-                  color: addedFeedback ? "#ffffff" : "",
-                  borderColor: addedFeedback ? "#16a34a" : ""
+                  background: isOutOfStock ? "#f1f5f9" : (addedFeedback ? "#16a34a" : ""),
+                  color: isOutOfStock ? "#94a3b8" : (addedFeedback ? "#ffffff" : ""),
+                  borderColor: isOutOfStock ? "#cbd5e1" : (addedFeedback ? "#16a34a" : "")
                 }}
               >
-                {addedFeedback ? "✓ Added to Cart!" : "🛒 Add to Cart"}
+                {isOutOfStock ? "Out of Stock" : (addedFeedback ? "✓ Added to Cart!" : "🛒 Add to Cart")}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => toggleWishlist(product)}
+                className="btn btn-outline"
+                title={isInWishlist(product._id || product.id) ? "Remove from Wishlist" : "Add to Wishlist"}
+                style={{
+                  padding: "12px 18px",
+                  fontSize: "1.25rem",
+                  color: isInWishlist(product._id || product.id) ? "#ef4444" : "#64748b",
+                  borderColor: isInWishlist(product._id || product.id) ? "#ef4444" : "#cbd5e1"
+                }}
+              >
+                {isInWishlist(product._id || product.id) ? "♥" : "♡"}
               </button>
 
               <button
                 onClick={handleBuyNow}
                 disabled={isOutOfStock || buying}
                 className="btn btn-primary"
-                style={{ flex: 1, padding: "12px", background: "#f59e0b", borderColor: "#d97706", color: "#000", fontWeight: "bold" }}
+                style={{
+                  flex: 1,
+                  padding: "12px",
+                  background: isOutOfStock ? "#94a3b8" : "#f59e0b",
+                  borderColor: isOutOfStock ? "#94a3b8" : "#d97706",
+                  color: isOutOfStock ? "#ffffff" : "#000",
+                  fontWeight: "bold"
+                }}
               >
-                {buying ? "Processing..." : "⚡ Buy Now"}
+                {isOutOfStock ? "Unavailable" : (buying ? "Processing..." : "⚡ Buy Now")}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => toggleWishlist(product)}
+                className="btn btn-outline"
+                title={isInWishlist(product._id || product.id) ? "Remove from Wishlist" : "Add to Wishlist"}
+                style={{
+                  padding: "12px 18px",
+                  fontSize: "1.25rem",
+                  color: isInWishlist(product._id || product.id) ? "#ef4444" : "#64748b",
+                  borderColor: isInWishlist(product._id || product.id) ? "#ef4444" : "#cbd5e1"
+                }}
+              >
+                {isInWishlist(product._id || product.id) ? "♥" : "♡"}
               </button>
             </div>
           </div>
@@ -379,6 +418,21 @@ function ProductDetail() {
                 <button type="submit" className="btn btn-primary" disabled={reviewSubmitting}>
                   {reviewSubmitting ? "Submitting..." : "Submit Review"}
                 </button>
+
+              <button
+                type="button"
+                onClick={() => toggleWishlist(product)}
+                className="btn btn-outline"
+                title={isInWishlist(product._id || product.id) ? "Remove from Wishlist" : "Add to Wishlist"}
+                style={{
+                  padding: "12px 18px",
+                  fontSize: "1.25rem",
+                  color: isInWishlist(product._id || product.id) ? "#ef4444" : "#64748b",
+                  borderColor: isInWishlist(product._id || product.id) ? "#ef4444" : "#cbd5e1"
+                }}
+              >
+                {isInWishlist(product._id || product.id) ? "♥" : "♡"}
+              </button>
               </form>
             ) : (
               <div style={{ textAlign: "center", color: "#6b7280", padding: "10px 0" }}>

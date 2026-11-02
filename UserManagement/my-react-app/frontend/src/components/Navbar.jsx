@@ -1,10 +1,12 @@
 import { Link, useNavigate } from "react-router-dom";
 import { useCart } from "../context/CartContext";
+import { useWishlist } from "../context/WishlistContext";
 import logo from "../assets/logo.png";
 
 function Navbar() {
   const navigate = useNavigate();
   const { cart, switchUser } = useCart();
+  const { wishlist } = useWishlist();
 
   const user = JSON.parse(localStorage.getItem("user") || "null");
   const token = localStorage.getItem("token");
@@ -33,6 +35,11 @@ function Navbar() {
 
       <nav className="navbar-links">
         <Link to="/products">Products</Link>
+
+        <Link to="/wishlist" style={{ display: "flex", alignItems: "center" }}>
+          Wishlist {wishlist.length > 0 && <span className="wishlist-badge">{wishlist.length}</span>}
+        </Link>
+
         <Link to="/cart">
           Cart {totalItems > 0 && <span className="cart-badge">{totalItems}</span>}
         </Link>

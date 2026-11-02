@@ -1,5 +1,4 @@
 const express = require("express");
-const mongoose = require("mongoose");
 const cors = require("cors");
 const path = require("path");
 const fs = require("fs");
@@ -10,7 +9,6 @@ const jwt = require("jsonwebtoken");
 
 require("dotenv").config();
 const s3 = require("./config/s3");
-const Order = require("./models/Order");
 
 // Only configure custom DNS in non-Lambda local environments
 if (!process.env.AWS_LAMBDA_FUNCTION_NAME) {
@@ -37,6 +35,8 @@ const userRoutes = require("./routes/userRoutes");
 const productRoutes = require("./routes/productRoutes");
 const orderRoutes = require("./routes/orderRoutes");
 const paymentRoutes = require("./routes/paymentRoutes");
+const couponRoutes = require("./routes/couponRoutes");
+const auditLogRoutes = require("./routes/auditLogRoutes");
 
 const app = express();
 const server = http.createServer(app);
@@ -70,7 +70,7 @@ const corsOptions = {
   },
   credentials: true,
   methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
-  allowedHeaders: ["Content-Type", "Authorization"]
+  allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With"]
 };
 
 const io = new Server(server, {
@@ -139,17 +139,10 @@ io.on("connection", (socket) => {
     }
 
     try {
-      let orderOwnerId = null;
-
-      if (process.env.USE_DYNAMODB !== "false") {
-        const OrderRepository = require("./repositories/orderRepository");
-        const orderRepo = new OrderRepository();
-        const order = await orderRepo.findById(orderId);
-        if (order) orderOwnerId = order.userId;
-      } else if (mongoose.Types.ObjectId.isValid(orderId)) {
-        const order = await Order.findById(orderId).select("userId");
-        if (order) orderOwnerId = order.userId.toString();
-      }
+      const OrderRepository = require("./repositories/orderRepository");
+      const orderRepo = new OrderRepository();
+      const order = await orderRepo.findById(orderId);
+      const orderOwnerId = order ? order.userId : null;
 
       if (!orderOwnerId) {
         return socket.emit("error", { message: "Order not found." });
@@ -193,42 +186,27 @@ app.use(express.json());
 app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 
 app.use((req, res, next) => {
-  // Avoid logging sensitive authorization tokens or request bodies in production
   if (process.env.NODE_ENV !== "test") {
     console.log(`[${new Date().toLocaleTimeString()}] ${req.method} ${req.originalUrl}`);
   }
   next();
 });
 
-// Root Welcome & Discovery Endpoint
-app.get("/", (req, res) => {
-  res.json({
-    status: "healthy",
-    message: "UserManagement AWS Backend API is operational",
-    endpoints: {
-      health: "/api/health",
-      products: "/api/products",
-      auth: "/api/auth/login"
-    }
-  });
-});
-
 // Live System Health Check Endpoint
 app.get("/api/health", (req, res) => {
-  const isDbConnected = process.env.USE_DYNAMODB !== "false" || mongoose.connection.readyState === 1;
   const bucketName =
     typeof s3.getBucketName === "function"
       ? s3.getBucketName()
       : (process.env.AWS_S3_BUCKET_NAME || "");
 
   const healthData = {
-    status: isDbConnected ? "healthy" : "degraded",
+    status: "healthy",
     uptimeSeconds: Math.floor(process.uptime()),
     timestamp: new Date().toISOString(),
     services: {
       database: {
-        status: isDbConnected ? "connected" : "disconnected",
-        engine: process.env.USE_DYNAMODB !== "false" ? "dynamodb" : "mongodb"
+        status: "connected",
+        engine: "dynamodb"
       },
       s3: {
         status: bucketName ? "configured" : "not_configured",
@@ -238,14 +216,17 @@ app.get("/api/health", (req, res) => {
     }
   };
 
-  res.status(isDbConnected ? 200 : 503).json(healthData);
+  res.status(200).json(healthData);
 });
 
+// Application Routes
 app.use("/api/auth", authRoutes);
 app.use("/api/users", userRoutes);
 app.use("/api/products", productRoutes);
 app.use("/api/orders", orderRoutes);
 app.use("/api/payment", paymentRoutes);
+app.use("/api/coupons", couponRoutes);
+app.use("/api/audit-logs", auditLogRoutes);
 
 app.use((err, req, res, next) => {
   console.error("Server Error:", err.message || err);
@@ -254,36 +235,15 @@ app.use((err, req, res, next) => {
   });
 });
 
-const MONGO_URL = process.env.MONGO_URL || "mongodb://127.0.0.1:27017/student-ecommerce";
-const PORT = process.env.PORT || 5000;
-
 if (require.main === module) {
+  const PORT = process.env.PORT || 5000;
   const startServer = async () => {
     await s3.checkConnection();
     server.listen(PORT, () => {
-      console.log(`Server running on http://localhost:${PORT}`);
+      console.log(`UserManagement AWS Server running on http://localhost:${PORT}`);
     });
   };
-
-  if (process.env.USE_DYNAMODB === "false") {
-    mongoose
-      .connect(MONGO_URL, {
-        serverSelectionTimeoutMS: 15000
-      })
-      .then(async () => {
-        console.log("MongoDB connected successfully");
-        await startServer();
-      })
-      .catch((error) => {
-        console.error("MongoDB connection error:", error.message);
-      });
-  } else {
-    // When DynamoDB is active, attempt MongoDB in background if configured, without blocking start
-    if (process.env.MONGO_URL) {
-      mongoose.connect(MONGO_URL, { serverSelectionTimeoutMS: 5000 }).catch(() => {});
-    }
-    startServer();
-  }
+  startServer();
 }
 
 module.exports = { app, server, io };

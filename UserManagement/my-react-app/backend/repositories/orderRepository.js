@@ -35,6 +35,11 @@ class OrderRepository {
       userEmail: item.userEmail || "",
       products: Array.isArray(item.products) ? item.products : [],
       purchasedProductIds: Array.isArray(item.purchasedProductIds) ? item.purchasedProductIds : [],
+      originalSubtotal: Number(item.originalSubtotal !== undefined ? item.originalSubtotal : item.totalAmount || 0),
+      productDiscountTotal: Number(item.productDiscountTotal || 0),
+      couponCode: item.couponCode || null,
+      couponDiscount: Number(item.couponDiscount || 0),
+      deliveryFee: Number(item.deliveryFee || 0),
       totalAmount: Number(item.totalAmount || 0),
       status: item.status || "Pending",
       paymentStatus: item.paymentStatus || "Pending",
@@ -59,7 +64,7 @@ class OrderRepository {
     return this._formatOrder(result.Item);
   }
 
-  async createOrderWithStockDeduction({ userId, userName, userEmail, rawProducts, productRepo }) {
+  async createOrderWithStockDeduction({ userId, userName, userEmail, rawProducts, productRepo, paymentMethod = "Card", couponCode = null, couponRepo = null }) {
     if (!Array.isArray(rawProducts) || rawProducts.length === 0) {
       throw new Error("Cart is empty. Products array is required.");
     }
@@ -101,19 +106,56 @@ class OrderRepository {
       throw err;
     }
 
-    let calculatedTotal = 0;
+    let originalSubtotal = 0;
+    let productDiscountTotal = 0;
     const validatedProducts = [];
     for (const record of productRecords) {
       const item = consolidatedMap.get(record.productId);
-      calculatedTotal += record.price * item.quantity;
+      const itemPrice = Number(record.price || 0);
+      const lineTotal = itemPrice * item.quantity;
+      originalSubtotal += lineTotal;
+
+      let effectivePrice = itemPrice;
+      if (record.discount && record.discount.isActive) {
+        const discVal = Number(record.discount.value || 0);
+        let itemDiscount = 0;
+        if (record.discount.discountType === "percentage") {
+          itemDiscount = Math.round((itemPrice * discVal) / 100);
+        } else {
+          itemDiscount = Math.min(discVal, itemPrice);
+        }
+        productDiscountTotal += itemDiscount * item.quantity;
+        effectivePrice = Math.max(0, itemPrice - itemDiscount);
+      }
+
       validatedProducts.push({
         productId: record.productId,
         name: record.name,
-        price: record.price,
+        price: effectivePrice,
+        originalPrice: itemPrice,
         quantity: item.quantity,
         image: item.image || record.image || ""
       });
     }
+
+    const discountedSubtotal = Math.max(0, originalSubtotal - productDiscountTotal);
+    let couponDiscount = 0;
+    let appliedCouponCode = null;
+
+    if (couponCode && couponRepo && typeof couponRepo.validateCoupon === "function") {
+      try {
+        const validation = await couponRepo.validateCoupon(couponCode, discountedSubtotal, userId);
+        if (validation && validation.valid && validation.coupon) {
+          appliedCouponCode = validation.coupon.code;
+          couponDiscount = Number(validation.discountAmount || 0);
+        }
+      } catch (couponErr) {
+        console.warn("Coupon validation skipped:", couponErr.message);
+      }
+    }
+
+    const deliveryFee = (discountedSubtotal - couponDiscount) >= 500 || discountedSubtotal === 0 ? 0 : 50;
+    const finalTotal = Math.max(0, discountedSubtotal - couponDiscount) + deliveryFee;
 
     const orderId = `ord_${crypto.randomUUID()}`;
     const now = new Date().toISOString();
@@ -125,7 +167,12 @@ class OrderRepository {
       userEmail: userEmail || "",
       products: validatedProducts,
       purchasedProductIds: productIds,
-      totalAmount: calculatedTotal,
+      originalSubtotal,
+      productDiscountTotal,
+      couponCode: appliedCouponCode,
+      couponDiscount,
+      deliveryFee,
+      totalAmount: finalTotal,
       status: "Pending",
       paymentStatus: "Pending",
       paymentMethod: "Card",
@@ -164,6 +211,14 @@ class OrderRepository {
           TransactItems: transactItems
         })
       );
+
+      if (appliedCouponCode && couponRepo && typeof couponRepo.recordUsage === "function") {
+        try {
+          await couponRepo.recordUsage(appliedCouponCode, userId);
+        } catch (e) {
+          console.warn("Error recording coupon usage:", e.message);
+        }
+      }
 
       return this._formatOrder(orderItem);
     } catch (err) {
@@ -581,7 +636,10 @@ class OrderRepository {
       .filter((o) => o.paymentStatus === "Paid")
       .reduce((sum, o) => sum + (Number(o.totalAmount) || 0), 0);
 
-    return { totalOrders, totalRevenue };
+    const paidOrders = allOrders.filter((o) => o.paymentStatus === "Paid").length;
+    const pendingOrders = allOrders.filter((o) => o.paymentStatus === "Pending" || o.paymentStatus !== "Paid").length;
+
+    return { totalOrders, totalRevenue, paidOrders, pendingOrders };
   }
 }
 

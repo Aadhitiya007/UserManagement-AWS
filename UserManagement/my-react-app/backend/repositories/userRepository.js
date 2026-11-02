@@ -355,6 +355,114 @@ class UserRepository {
     );
     return result.Count || 0;
   }
+
+  /**
+   * Create a secure password reset token (15-min expiration) in DynamoDB
+   */
+  async createPasswordResetToken(email, hashedToken, expiresAt) {
+    const user = await this.findByEmail(email);
+    if (!user) return null;
+
+    const resetItem = {
+      userId: `RESET#${hashedToken}`,
+      itemType: "PASSWORD_RESET_TOKEN",
+      targetUserId: user.id,
+      email: user.email,
+      expiresAt: Number(expiresAt),
+      createdAt: new Date().toISOString()
+    };
+
+    const updateProfile = {
+      Update: {
+        TableName: this.tableName,
+        Key: { userId: user.id },
+        UpdateExpression: "SET resetPasswordToken = :token, resetPasswordExpire = :exp, updatedAt = :now",
+        ExpressionAttributeValues: {
+          ":token": hashedToken,
+          ":exp": Number(expiresAt),
+          ":now": new Date().toISOString()
+        }
+      }
+    };
+
+    const putToken = {
+      Put: {
+        TableName: this.tableName,
+        Item: resetItem
+      }
+    };
+
+    await this.docClient.send(
+      new TransactWriteCommand({
+        TransactItems: [updateProfile, putToken]
+      })
+    );
+
+    return { user, expiresAt };
+  }
+
+  /**
+   * Atomically consume reset token and update password in DynamoDB
+   */
+  async consumePasswordResetToken(hashedToken, newPasswordHash) {
+    const tokenResult = await this.docClient.send(
+      new GetCommand({
+        TableName: this.tableName,
+        Key: { userId: `RESET#${hashedToken}` }
+      })
+    );
+
+    const tokenItem = tokenResult.Item;
+    if (!tokenItem || tokenItem.itemType !== "PASSWORD_RESET_TOKEN") {
+      const err = new Error("Invalid or expired password reset token.");
+      err.status = 400;
+      throw err;
+    }
+
+    if (Date.now() > Number(tokenItem.expiresAt)) {
+      try {
+        await this.docClient.send(
+          new DeleteCommand({
+            TableName: this.tableName,
+            Key: { userId: `RESET#${hashedToken}` }
+          })
+        );
+      } catch (_) {}
+      const err = new Error("Password reset token has expired.");
+      err.status = 400;
+      throw err;
+    }
+
+    const deleteToken = {
+      Delete: {
+        TableName: this.tableName,
+        Key: { userId: `RESET#${hashedToken}` }
+      }
+    };
+
+    const updateProfile = {
+      Update: {
+        TableName: this.tableName,
+        Key: { userId: tokenItem.targetUserId },
+        UpdateExpression: "SET password = :pwd, resetPasswordToken = :null, resetPasswordExpire = :null, updatedAt = :now ADD tokenVersion :one",
+        ExpressionAttributeValues: {
+          ":pwd": newPasswordHash,
+          ":null": null,
+          ":now": new Date().toISOString(),
+          ":one": 1
+        }
+      }
+    };
+
+    await this.docClient.send(
+      new TransactWriteCommand({
+        TransactItems: [deleteToken, updateProfile]
+      })
+    );
+
+    return { success: true, userId: tokenItem.targetUserId };
+  }
+
 }
 
 module.exports = UserRepository;
