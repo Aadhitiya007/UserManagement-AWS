@@ -27,6 +27,7 @@ const s3 = new S3Client(clientConfig);
 
 s3.getBucketName = () => process.env.AWS_S3_BUCKET_NAME || "";
 s3.getRegion = () => process.env.AWS_REGION || "ap-south-2";
+s3.getS3Client = () => s3;
 
 /**
  * Checks connection to AWS S3 bucket and logs connection status.

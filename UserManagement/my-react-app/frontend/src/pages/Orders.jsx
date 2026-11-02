@@ -16,7 +16,7 @@ function Orders() {
     fetchMyOrders();
 
     const token = localStorage.getItem("token");
-    if (!token) return;
+    if (!token || (API_URL && API_URL.includes("execute-api"))) return;
 
     const socket = io(API_URL, {
       auth: { token }
@@ -54,7 +54,7 @@ function Orders() {
 
   async function fetchMyOrders() {
     const token = localStorage.getItem("token");
-    if (!token) return;
+    if (!token || (API_URL && API_URL.includes("execute-api"))) return;
 
     try {
       setLoading(true);
@@ -191,7 +191,23 @@ function Orders() {
                   </div>
 
                   <div style={{ textAlign: "right", borderTop: "1px solid #f1f5f9", paddingTop: "10px", fontWeight: "bold", fontSize: "1.1rem" }}>
-                    Total: <span style={{ color: "#2563eb" }}>₹{order.totalAmount}</span>
+                    {order.couponCode && (
+                      <div style={{ fontSize: "0.85rem", color: "#16a34a", marginBottom: "4px" }}>
+                        🏷️ Promo ({order.couponCode}): -₹{order.couponDiscount}
+                      </div>
+                    )}
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", width: "100%" }}>
+                      <a
+                        href={`${API_URL}/api/orders/${order._id || order.id}/invoice`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="btn btn-outline btn-sm"
+                        style={{ fontSize: "0.75rem", padding: "4px 8px" }}
+                      >
+                        📄 Tax Invoice
+                      </a>
+                      <span>Total: <span style={{ color: "#2563eb" }}>₹{order.totalAmount}</span></span>
+                    </div>
                   </div>
                 </div>
               ))}

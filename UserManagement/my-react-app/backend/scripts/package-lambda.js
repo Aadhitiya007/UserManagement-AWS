@@ -24,10 +24,11 @@ function buildLambdaPackage() {
     `'${path.join(backendDir, "models")}'`,
     `'${path.join(backendDir, "repositories")}'`,
     `'${path.join(backendDir, "routes")}'`,
+    `'${path.join(backendDir, "utils")}'`,
     `'${path.join(backendDir, "node_modules")}'`
   ];
 
-  const psCommand = `powershell -NoProfile -Command "$ProgressPreference = 'SilentlyContinue'; Compress-Archive -Path ${filesToInclude.join(", ")} -DestinationPath '${zipOutput}' -CompressionLevel Optimal"`;
+  const psCommand = `powershell -NoProfile -Command "$ProgressPreference = 'SilentlyContinue'; Compress-Archive -Path ${filesToInclude.join(", ")} -DestinationPath '${zipOutput}' -CompressionLevel Fastest"`;
 
   execSync(psCommand, { stdio: "inherit" });
 
@@ -39,4 +40,3 @@ function buildLambdaPackage() {
 }
 
 buildLambdaPackage();
-

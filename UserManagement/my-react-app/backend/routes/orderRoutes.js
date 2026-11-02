@@ -8,7 +8,8 @@ const {
   getUserOrders,
   getAllOrders,
   updateOrderStatus,
-  getAdminStats
+  getAdminStats,
+  getOrderInvoice
 } = require("../controllers/orderController");
 
 const orderLimiter = rateLimit({
@@ -24,5 +25,6 @@ router.get("/my-orders", verifyToken, getUserOrders);
 router.get("/", verifyToken, requireAdmin, getAllOrders);
 router.get("/stats", verifyToken, requireAdmin, getAdminStats);
 router.put("/:id/status", verifyToken, requireAdmin, updateOrderStatus);
+router.get("/:id/invoice", verifyToken, getOrderInvoice);
 
 module.exports = router;

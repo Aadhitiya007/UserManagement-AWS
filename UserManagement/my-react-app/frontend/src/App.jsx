@@ -1,9 +1,11 @@
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { CartProvider } from "./context/CartContext";
+import { WishlistProvider } from "./context/WishlistContext";
 import ProtectedRoute from "./components/ProtectedRoute";
 
 import Products from "./pages/Products";
 import ProductDetail from "./pages/ProductDetail";
+import Wishlist from "./pages/Wishlist";
 import Cart from "./pages/cart";
 import Orders from "./pages/Orders";
 import Payment from "./pages/Payment";
@@ -19,6 +21,8 @@ import EditProduct from "./pages/admin/EditProduct";
 import AdminOrders from "./pages/admin/AdminOrders";
 import AdminUsers from "./pages/admin/AdminUsers";
 import AdminReviews from "./pages/admin/AdminReviews";
+import AdminDiscounts from "./pages/admin/AdminDiscounts";
+import AdminAuditLogs from "./pages/admin/AdminAuditLogs";
 
 import { useEffect } from "react";
 import { io } from "socket.io-client";
@@ -27,6 +31,12 @@ import { isTokenExpired, handleForceLogout } from "./utils/auth";
 
 function App() {
   useEffect(() => {
+    // On AWS Serverless (API Gateway HTTP API), WebSocket/Socket.IO is not hosted on REST endpoints.
+    // Skipping socket connection prevents CORS/404 polling errors.
+    if (API_URL && API_URL.includes("execute-api")) {
+      return;
+    }
+
     const token = localStorage.getItem("token");
     if (!token) return;
 
@@ -66,116 +76,135 @@ function App() {
 
   return (
     <BrowserRouter>
-      <CartProvider>
-        <Routes>
-          {/* Public Storefront Routes */}
-          <Route path="/" element={<Navigate to="/products" replace />} />
-          <Route path="/products" element={<Products />} />
-          <Route path="/products/:id" element={<ProductDetail />} />
-          <Route path="/cart" element={<Cart />} />
-          <Route path="/login" element={<Login />} />
-          <Route path="/signup" element={<Signup />} />
+      <WishlistProvider>
+        <CartProvider>
+          <Routes>
+            {/* Public Storefront Routes */}
+            <Route path="/" element={<Navigate to="/products" replace />} />
+            <Route path="/products" element={<Products />} />
+            <Route path="/products/:id" element={<ProductDetail />} />
+            <Route path="/wishlist" element={<Wishlist />} />
+            <Route path="/cart" element={<Cart />} />
+            <Route path="/login" element={<Login />} />
+            <Route path="/signup" element={<Signup />} />
 
-          {/* User Protected Routes */}
-          <Route
-            path="/orders"
-            element={
-              <ProtectedRoute>
-                <Orders />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/payment/:orderId"
-            element={
-              <ProtectedRoute>
-                <Payment />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/payment/success"
-            element={
-              <ProtectedRoute>
-                <PaymentSuccess />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/payment/failure"
-            element={<Navigate to="/cart" replace />}
-          />
+            {/* User Protected Routes */}
+            <Route
+              path="/orders"
+              element={
+                <ProtectedRoute>
+                  <Orders />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/payment/:orderId"
+              element={
+                <ProtectedRoute>
+                  <Payment />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/payment/success"
+              element={
+                <ProtectedRoute>
+                  <PaymentSuccess />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/payment/failure"
+              element={<Navigate to="/cart" replace />}
+            />
 
-          {/* Admin Protected Routes */}
-          <Route
-            path="/admin"
-            element={
-              <ProtectedRoute allowedRoles={["admin"]}>
-                <AdminDashboard />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/admin/dashboard"
-            element={
-              <ProtectedRoute allowedRoles={["admin"]}>
-                <AdminDashboard />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/admin/products"
-            element={
-              <ProtectedRoute allowedRoles={["admin"]}>
-                <AdminProducts />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/admin/products/add"
-            element={
-              <ProtectedRoute allowedRoles={["admin"]}>
-                <AddProduct />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/admin/products/edit/:id"
-            element={
-              <ProtectedRoute allowedRoles={["admin"]}>
-                <EditProduct />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/admin/orders"
-            element={
-              <ProtectedRoute allowedRoles={["admin"]}>
-                <AdminOrders />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/admin/users"
-            element={
-              <ProtectedRoute allowedRoles={["admin"]}>
-                <AdminUsers />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/admin/reviews"
-            element={
-              <ProtectedRoute allowedRoles={["admin"]}>
-                <AdminReviews />
-              </ProtectedRoute>
-            }
-          />
+            {/* Admin Protected Routes */}
+            <Route
+              path="/admin"
+              element={
+                <ProtectedRoute allowedRoles={["admin"]}>
+                  <AdminDashboard />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/admin/dashboard"
+              element={
+                <ProtectedRoute allowedRoles={["admin"]}>
+                  <AdminDashboard />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/admin/products"
+              element={
+                <ProtectedRoute allowedRoles={["admin"]}>
+                  <AdminProducts />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/admin/products/add"
+              element={
+                <ProtectedRoute allowedRoles={["admin"]}>
+                  <AddProduct />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/admin/products/edit/:id"
+              element={
+                <ProtectedRoute allowedRoles={["admin"]}>
+                  <EditProduct />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/admin/orders"
+              element={
+                <ProtectedRoute allowedRoles={["admin"]}>
+                  <AdminOrders />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/admin/users"
+              element={
+                <ProtectedRoute allowedRoles={["admin"]}>
+                  <AdminUsers />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/admin/reviews"
+              element={
+                <ProtectedRoute allowedRoles={["admin"]}>
+                  <AdminReviews />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/admin/discounts"
+              element={
+                <ProtectedRoute allowedRoles={["admin"]}>
+                  <AdminDiscounts />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/admin/audit-logs"
+              element={
+                <ProtectedRoute allowedRoles={["admin"]}>
+                  <AdminAuditLogs />
+                </ProtectedRoute>
+              }
+            />
 
-          {/* Catch-all fallback */}
-          <Route path="*" element={<Navigate to="/products" replace />} />
-        </Routes>
-      </CartProvider>
+            {/* Catch-all fallback */}
+            <Route path="*" element={<Navigate to="/products" replace />} />
+          </Routes>
+        </CartProvider>
+      </WishlistProvider>
     </BrowserRouter>
   );
 }

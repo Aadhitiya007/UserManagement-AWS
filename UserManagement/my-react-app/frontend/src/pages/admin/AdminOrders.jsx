@@ -21,7 +21,7 @@ function AdminOrders() {
     fetchOrders();
 
     const token = localStorage.getItem("token");
-    if (!token) return;
+    if (!token || (API_URL && API_URL.includes("execute-api"))) return;
 
     const socket = io(API_URL, {
       auth: { token }

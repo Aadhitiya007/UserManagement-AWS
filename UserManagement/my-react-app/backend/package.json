@@ -5,7 +5,7 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "test": "node tests/s3-image.test.js && node tests/dynamodb-repositories.test.js && node tests/user-dynamodb-controller.test.js && node tests/product-dynamodb-controller.test.js && node tests/order-dynamodb-controller.test.js && node tests/lambda-handler.test.js",
+    "test": "node tests/s3-image.test.js && node tests/dynamodb-repositories.test.js && node tests/user-dynamodb-controller.test.js && node tests/product-dynamodb-controller.test.js && node tests/order-dynamodb-controller.test.js && node tests/coupon-dynamodb.test.js && node tests/password-reset-dynamodb.test.js && node tests/lambda-handler.test.js",
     "package:lambda": "node scripts/package-lambda.js",
     "create:orders-table": "node scripts/create-orders-table.js",
     "seed:admin": "node scripts/seed-admin.js",
