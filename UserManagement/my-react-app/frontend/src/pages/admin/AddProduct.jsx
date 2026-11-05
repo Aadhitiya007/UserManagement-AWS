@@ -1,8 +1,10 @@
 import { useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, Link } from "react-router-dom";
 import Navbar from "../../components/Navbar";
 import AdminSidebar from "../../components/AdminSidebar";
+import PageHeader from "../../components/ui/PageHeader";
 import { API_URL } from "../../config/api";
+import { ArrowLeft, Upload, Check, AlertCircle } from "lucide-react";
 
 function AddProduct() {
   const [name, setName] = useState("");
@@ -32,7 +34,6 @@ function AddProduct() {
 
     const token = localStorage.getItem("token");
 
-    // Use FormData for file upload
     const formData = new FormData();
     formData.append("name", name);
     formData.append("description", description);
@@ -58,7 +59,7 @@ function AddProduct() {
         throw new Error(data.message || "Failed to create product");
       }
 
-      alert("🎉 Product added successfully!");
+      alert("🎉 Product created and synced with S3 successfully!");
       navigate("/admin/products");
     } catch (err) {
       setError(err.message);
@@ -73,42 +74,63 @@ function AddProduct() {
       <div className="admin-layout">
         <AdminSidebar />
         <main className="admin-content">
-          <h2 style={{ marginBottom: "20px" }}>Add New Product</h2>
+          <PageHeader
+            title="Create Product"
+            subtitle="Add a new item to your online storefront with S3 media hosting."
+            actions={
+              <Link to="/admin/products" className="btn btn-secondary btn-sm">
+                <ArrowLeft size={14} />
+                <span>Back to Catalog</span>
+              </Link>
+            }
+          />
 
-          <div className="form-card" style={{ margin: "0" }}>
-            {error && (
-              <div style={{ padding: "12px", background: "#fee2e2", color: "#991b1b", borderRadius: "6px", marginBottom: "20px" }}>
-                {error}
-              </div>
-            )}
+          {error && (
+            <div
+              style={{
+                padding: "14px",
+                backgroundColor: "var(--color-error-light)",
+                color: "var(--color-error)",
+                borderRadius: "var(--radius-md)",
+                marginBottom: "20px",
+                display: "flex",
+                alignItems: "center",
+                gap: "8px"
+              }}
+            >
+              <AlertCircle size={16} />
+              <span>{error}</span>
+            </div>
+          )}
 
-            <form onSubmit={handleSubmit}>
+          <div style={{ maxWidth: "760px" }}>
+            <form onSubmit={handleSubmit} className="card" style={{ display: "flex", flexDirection: "column", gap: "20px" }}>
               <div className="form-group">
-                <label>Product Name *</label>
+                <label className="form-label">Product Title *</label>
                 <input
                   type="text"
                   className="form-control"
                   value={name}
                   onChange={(e) => setName(e.target.value)}
                   required
-                  placeholder="e.g. Wireless Mouse"
+                  placeholder="e.g. Modern Ergonomic Wireless Keyboard"
                 />
               </div>
 
               <div className="form-group">
-                <label>Description</label>
+                <label className="form-label">Description</label>
                 <textarea
                   className="form-control"
-                  rows="3"
+                  rows="4"
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
-                  placeholder="Enter product description"
+                  placeholder="Describe key features, technical specifications, and materials..."
                 />
               </div>
 
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "15px" }}>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "16px" }}>
                 <div className="form-group">
-                  <label>Price (₹) *</label>
+                  <label className="form-label">Price (₹ INR) *</label>
                   <input
                     type="number"
                     step="0.01"
@@ -121,17 +143,15 @@ function AddProduct() {
                     }}
                     onChange={(e) => {
                       const val = e.target.value;
-                      if (val === "" || parseFloat(val) >= 0) {
-                        setPrice(val);
-                      }
+                      if (val === "" || parseFloat(val) >= 0) setPrice(val);
                     }}
                     required
-                    placeholder="999.00"
+                    placeholder="1499.00"
                   />
                 </div>
 
                 <div className="form-group">
-                  <label>Stock Quantity *</label>
+                  <label className="form-label">Warehouse Stock Quantity *</label>
                   <input
                     type="number"
                     min="0"
@@ -143,19 +163,21 @@ function AddProduct() {
                     }}
                     onChange={(e) => {
                       const val = e.target.value;
-                      if (val === "" || parseInt(val, 10) >= 0) {
-                        setStock(val);
-                      }
+                      if (val === "" || parseInt(val, 10) >= 0) setStock(val);
                     }}
                     required
-                    placeholder="10"
+                    placeholder="25"
                   />
                 </div>
               </div>
 
               <div className="form-group">
-                <label>Category *</label>
-                <select className="form-control" value={category} onChange={(e) => setCategory(e.target.value)}>
+                <label className="form-label">Store Category *</label>
+                <select
+                  className="form-control"
+                  value={category}
+                  onChange={(e) => setCategory(e.target.value)}
+                >
                   <option value="Electronics">Electronics</option>
                   <option value="Clothing">Clothing</option>
                   <option value="Books">Books</option>
@@ -165,24 +187,74 @@ function AddProduct() {
               </div>
 
               <div className="form-group">
-                <label>Product Image</label>
-                <input
-                  type="file"
-                  accept="image/*"
-                  onChange={handleImageChange}
-                  className="form-control"
-                />
+                <label className="form-label">Product Image (Uploaded to Amazon S3)</label>
+                <div
+                  style={{
+                    border: "2px dashed var(--color-border)",
+                    borderRadius: "var(--radius-md)",
+                    padding: "24px",
+                    textAlign: "center",
+                    backgroundColor: "var(--color-surface-subtle)",
+                    cursor: "pointer",
+                    position: "relative"
+                  }}
+                >
+                  <Upload size={28} color="var(--color-text-muted)" style={{ margin: "0 auto 8px" }} />
+                  <p style={{ fontSize: "0.88rem", fontWeight: "600", color: "var(--color-text-primary)", margin: "0 0 4px" }}>
+                    Select image to upload
+                  </p>
+                  <p style={{ fontSize: "0.78rem", color: "var(--color-text-muted)", margin: 0 }}>
+                    PNG, JPG, or WEBP up to 5MB
+                  </p>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    onChange={handleImageChange}
+                    style={{
+                      position: "absolute",
+                      inset: 0,
+                      opacity: 0,
+                      cursor: "pointer",
+                      width: "100%",
+                      height: "100%"
+                    }}
+                  />
+                </div>
+
                 {imagePreview && (
-                  <div>
-                    <p style={{ fontSize: "0.85rem", color: "#6b7280", marginTop: "8px" }}>Preview:</p>
-                    <img src={imagePreview} alt="Preview" className="img-preview" />
+                  <div style={{ marginTop: "14px" }}>
+                    <span style={{ fontSize: "0.8rem", fontWeight: "600", color: "var(--color-text-secondary)" }}>
+                      Selected Preview:
+                    </span>
+                    <div
+                      style={{
+                        width: "100px",
+                        height: "100px",
+                        borderRadius: "var(--radius-sm)",
+                        overflow: "hidden",
+                        border: "1px solid var(--color-border)",
+                        marginTop: "6px"
+                      }}
+                    >
+                      <img src={imagePreview} alt="Preview" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                    </div>
                   </div>
                 )}
               </div>
 
-              <button type="submit" className="btn btn-primary" style={{ width: "100%", marginTop: "10px" }} disabled={loading}>
-                {loading ? "Adding Product..." : "Add Product"}
-              </button>
+              <div style={{ display: "flex", gap: "12px", marginTop: "10px" }}>
+                <button
+                  type="submit"
+                  className="btn btn-primary"
+                  style={{ flex: 1 }}
+                  disabled={loading}
+                >
+                  {loading ? "Publishing to S3..." : "Publish Product"}
+                </button>
+                <Link to="/admin/products" className="btn btn-secondary" style={{ flex: 1 }}>
+                  Cancel
+                </Link>
+              </div>
             </form>
           </div>
         </main>

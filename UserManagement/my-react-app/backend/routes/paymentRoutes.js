@@ -15,7 +15,8 @@ const paymentLimiter = rateLimit({
 // 1. Get payment status for verification
 router.get("/:orderId", verifyToken, paymentController.getOrderPaymentStatus);
 
-// 2. Production payment webhook (HMAC-SHA256 signature verified inside controller)
+
+// 3. Production payment webhook (Stripe signature & HMAC verified inside controller)
 router.post("/webhook", paymentController.handlePaymentWebhook);
 
 // 3. Simulate payment outcome (Dev / Testing)
@@ -26,5 +27,9 @@ router.post("/retry", paymentLimiter, verifyToken, paymentController.retryPaymen
 
 // 5. Cancel an unpaid checkout session and restore stock
 router.post("/cancel", paymentLimiter, verifyToken, paymentController.cancelPendingPayment);
+
+// 6. Razorpay Create Order & Payment Verification
+router.post("/razorpay/create-order", paymentLimiter, verifyToken, paymentController.createRazorpayOrder);
+router.post("/razorpay/verify", paymentLimiter, verifyToken, paymentController.verifyRazorpayPayment);
 
 module.exports = router;

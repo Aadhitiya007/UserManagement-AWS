@@ -1,4 +1,5 @@
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+import { ThemeProvider } from "./context/ThemeContext";
 import { CartProvider } from "./context/CartContext";
 import { WishlistProvider } from "./context/WishlistContext";
 import ProtectedRoute from "./components/ProtectedRoute";
@@ -13,7 +14,11 @@ import PaymentSuccess from "./pages/PaymentSuccess";
 
 import Login from "./pages/Login";
 import Signup from "./pages/Signup";
+import VerifyEmail from "./pages/VerifyEmail";
+import ForgotPassword from "./pages/ForgotPassword";
+import ResetPassword from "./pages/ResetPassword";
 
+import AdminLogin from "./pages/admin/AdminLogin";
 import AdminDashboard from "./pages/admin/AdminDashboard";
 import AdminProducts from "./pages/admin/AdminProducts";
 import AddProduct from "./pages/admin/AddProduct";
@@ -76,8 +81,9 @@ function App() {
 
   return (
     <BrowserRouter>
-      <WishlistProvider>
-        <CartProvider>
+      <ThemeProvider>
+        <WishlistProvider>
+          <CartProvider>
           <Routes>
             {/* Public Storefront Routes */}
             <Route path="/" element={<Navigate to="/products" replace />} />
@@ -87,6 +93,10 @@ function App() {
             <Route path="/cart" element={<Cart />} />
             <Route path="/login" element={<Login />} />
             <Route path="/signup" element={<Signup />} />
+            <Route path="/verify-email" element={<VerifyEmail />} />
+            <Route path="/forgot-password" element={<ForgotPassword />} />
+            <Route path="/reset-password/:token" element={<ResetPassword />} />
+            <Route path="/admin/login" element={<AdminLogin />} />
 
             {/* User Protected Routes */}
             <Route
@@ -118,11 +128,11 @@ function App() {
               element={<Navigate to="/cart" replace />}
             />
 
-            {/* Admin Protected Routes */}
+            {/* Staff & Admin Protected Routes */}
             <Route
               path="/admin"
               element={
-                <ProtectedRoute allowedRoles={["admin"]}>
+                <ProtectedRoute allowedRoles={["admin", "manager"]}>
                   <AdminDashboard />
                 </ProtectedRoute>
               }
@@ -130,7 +140,7 @@ function App() {
             <Route
               path="/admin/dashboard"
               element={
-                <ProtectedRoute allowedRoles={["admin"]}>
+                <ProtectedRoute allowedRoles={["admin", "manager"]}>
                   <AdminDashboard />
                 </ProtectedRoute>
               }
@@ -138,7 +148,7 @@ function App() {
             <Route
               path="/admin/products"
               element={
-                <ProtectedRoute allowedRoles={["admin"]}>
+                <ProtectedRoute allowedRoles={["admin", "manager"]}>
                   <AdminProducts />
                 </ProtectedRoute>
               }
@@ -146,7 +156,7 @@ function App() {
             <Route
               path="/admin/products/add"
               element={
-                <ProtectedRoute allowedRoles={["admin"]}>
+                <ProtectedRoute allowedRoles={["admin", "manager"]}>
                   <AddProduct />
                 </ProtectedRoute>
               }
@@ -154,7 +164,7 @@ function App() {
             <Route
               path="/admin/products/edit/:id"
               element={
-                <ProtectedRoute allowedRoles={["admin"]}>
+                <ProtectedRoute allowedRoles={["admin", "manager"]}>
                   <EditProduct />
                 </ProtectedRoute>
               }
@@ -162,7 +172,7 @@ function App() {
             <Route
               path="/admin/orders"
               element={
-                <ProtectedRoute allowedRoles={["admin"]}>
+                <ProtectedRoute allowedRoles={["admin", "manager"]}>
                   <AdminOrders />
                 </ProtectedRoute>
               }
@@ -178,7 +188,7 @@ function App() {
             <Route
               path="/admin/reviews"
               element={
-                <ProtectedRoute allowedRoles={["admin"]}>
+                <ProtectedRoute allowedRoles={["admin", "manager"]}>
                   <AdminReviews />
                 </ProtectedRoute>
               }
@@ -186,7 +196,7 @@ function App() {
             <Route
               path="/admin/discounts"
               element={
-                <ProtectedRoute allowedRoles={["admin"]}>
+                <ProtectedRoute allowedRoles={["admin", "manager"]}>
                   <AdminDiscounts />
                 </ProtectedRoute>
               }
@@ -205,7 +215,8 @@ function App() {
           </Routes>
         </CartProvider>
       </WishlistProvider>
-    </BrowserRouter>
+    </ThemeProvider>
+  </BrowserRouter>
   );
 }
 

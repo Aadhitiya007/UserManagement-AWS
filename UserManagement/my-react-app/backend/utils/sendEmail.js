@@ -3,24 +3,28 @@
  * Supports Amazon SES / SMTP when configured, with safe local logging fallback.
  */
 async function sendEmail({ to, subject, html, text, attachments = [] }) {
-  const fromAddress = process.env.EMAIL_FROM || '"Shopiee" <no-reply@shopiee.com>';
+  const emailUser = process.env.EMAIL_USER ? process.env.EMAIL_USER.trim().replace(/^['"]|['"]$/g, "") : null;
+  const emailPass = process.env.EMAIL_PASS ? process.env.EMAIL_PASS.trim().replace(/^['"]|['"]$/g, "").replace(/\s+/g, "") : null;
+  const fromAddress = process.env.EMAIL_FROM || (emailUser && emailUser.includes("@") ? `"Shopiee" <${emailUser}>` : '"Shopiee" <no-reply@shopiee.com>');
 
   // Check if nodemailer is available and configured
   try {
     const nodemailer = require("nodemailer");
-    if (process.env.EMAIL_HOST && process.env.EMAIL_USER && process.env.EMAIL_PASS) {
+    const host = process.env.EMAIL_HOST || (emailUser && emailUser.includes("@gmail") ? "smtp.gmail.com" : null);
+
+    if (host && emailUser && emailPass) {
       const port = parseInt(process.env.EMAIL_PORT, 10) || 587;
       const transporter = nodemailer.createTransport({
-        host: process.env.EMAIL_HOST,
+        host,
         port,
         secure: port === 465,
         auth: {
-          user: process.env.EMAIL_USER,
-          pass: process.env.EMAIL_PASS
+          user: emailUser,
+          pass: emailPass
         }
       });
 
-      return await transporter.sendMail({
+      const info = await transporter.sendMail({
         from: fromAddress,
         to,
         subject,
@@ -28,9 +32,12 @@ async function sendEmail({ to, subject, html, text, attachments = [] }) {
         html,
         attachments
       });
+
+      console.log(`[Email Service] Live email dispatched to: ${to} | MessageId: ${info.messageId}`);
+      return info;
     }
-  } catch (_) {
-    // nodemailer not installed or SMTP not configured
+  } catch (err) {
+    console.error(`[Email Service] SMTP dispatch error to ${to}:`, err.message);
   }
 
   // Safe fallback: log formatted message for development & testing

@@ -5,14 +5,13 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "test": "node tests/s3-image.test.js && node tests/dynamodb-repositories.test.js && node tests/user-dynamodb-controller.test.js && node tests/product-dynamodb-controller.test.js && node tests/order-dynamodb-controller.test.js && node tests/coupon-dynamodb.test.js && node tests/password-reset-dynamodb.test.js && node tests/lambda-handler.test.js",
+    "test": "node tests/s3-image.test.js && node tests/dynamodb-repositories.test.js && node tests/user-dynamodb-controller.test.js && node tests/product-dynamodb-controller.test.js && node tests/order-dynamodb-controller.test.js && node tests/coupon-dynamodb.test.js && node tests/password-reset-dynamodb.test.js && node tests/email-verification-dynamodb.test.js && node tests/razorpay-payment.test.js && node tests/lambda-handler.test.js",
     "package:lambda": "node scripts/package-lambda.js",
     "create:orders-table": "node scripts/create-orders-table.js",
     "seed:admin": "node scripts/seed-admin.js",
     "seed:products": "node scripts/seed-products.js",
     "check:dynamo": "node scripts/inspect-dynamodb.js",
     "verify:s3": "node scripts/verify-s3.js",
-    "test:security": "node tests/security-audit.test.js",
     "dev": "nodemon server.js"
   },
   "keywords": [],
@@ -30,10 +29,9 @@
     "express": "^5.2.1",
     "express-rate-limit": "^8.7.0",
     "jsonwebtoken": "^9.0.3",
-    "mongoose": "^9.9.5",
     "multer": "^2.4.0",
+    "nodemailer": "^10.3.1",
     "nodemon": "^3.1.14",
-    "pdf-parse": "^2.4.5",
     "socket.io": "^4.8.4"
   },
   "devDependencies": {

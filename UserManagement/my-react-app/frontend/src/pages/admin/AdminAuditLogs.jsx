@@ -1,7 +1,20 @@
 import { useState, useEffect } from "react";
-import { Link } from "react-router-dom";
 import Navbar from "../../components/Navbar";
+import AdminSidebar from "../../components/AdminSidebar";
+import PageHeader from "../../components/ui/PageHeader";
+import Badge from "../../components/ui/Badge";
+import Modal from "../../components/ui/Modal";
+import EmptyState from "../../components/ui/EmptyState";
+import { TableRowSkeleton } from "../../components/ui/LoadingSkeleton";
 import { API_URL } from "../../config/api";
+import {
+  ScrollText,
+  Search,
+  Filter,
+  Shield,
+  Eye,
+  RotateCcw
+} from "lucide-react";
 
 function AdminAuditLogs() {
   const [logs, setLogs] = useState([]);
@@ -10,6 +23,7 @@ function AdminAuditLogs() {
   const [categoryFilter, setCategoryFilter] = useState("ALL");
   const [statusFilter, setStatusFilter] = useState("ALL");
   const [searchTerm, setSearchTerm] = useState("");
+  const [selectedLog, setSelectedLog] = useState(null);
 
   useEffect(() => {
     fetchLogs();
@@ -48,190 +62,270 @@ function AdminAuditLogs() {
     return actionMatch || emailMatch || targetMatch;
   });
 
-  function getStatusBadge(status) {
-    if (status === "SUCCESS") {
-      return <span className="badge badge-success">SUCCESS</span>;
-    } else if (status === "WARNING") {
-      return <span className="badge" style={{ background: "#fef3c7", color: "#92400e" }}>WARNING</span>;
-    } else {
-      return <span className="badge badge-danger">FAILURE</span>;
-    }
-  }
-
-  function getCategoryBadge(category) {
-    const colors = {
-      AUTH: { bg: "#e0e7ff", text: "#3730a3" },
-      ORDER: { bg: "#ecfdf5", text: "#065f46" },
-      PAYMENT: { bg: "#fef3c7", text: "#92400e" },
-      PRODUCT: { bg: "#f3e8ff", text: "#6b21a8" },
-      COUPON: { bg: "#fce7f3", text: "#9d174d" },
-      EMAIL: { bg: "#e0f2fe", text: "#075985" }
-    };
-    const c = colors[category] || { bg: "#f1f5f9", text: "#475569" };
-    return (
-      <span
-        style={{
-          background: c.bg,
-          color: c.text,
-          padding: "3px 8px",
-          borderRadius: "4px",
-          fontSize: "0.75rem",
-          fontWeight: "600",
-          letterSpacing: "0.03em"
-        }}
-      >
-        {category}
-      </span>
-    );
-  }
-
   return (
     <>
       <Navbar />
-      <div className="container" style={{ padding: "30px 20px" }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "24px" }}>
-          <div>
-            <Link to="/admin/dashboard" className="btn btn-outline btn-sm" style={{ marginBottom: "8px" }}>
-              ← Admin Dashboard
-            </Link>
-            <h1 style={{ fontSize: "1.8rem", margin: "6px 0", color: "#0f172a" }}>
-              📜 System Audit Trail (90-Day Retention)
-            </h1>
-            <p style={{ color: "#64748b", margin: 0 }}>
-              Live, immutable audit trail for security events, orders, payments, coupons, and inventory triggers.
-            </p>
-          </div>
+      <div className="admin-layout">
+        <AdminSidebar />
+        <main className="admin-content">
+          <PageHeader
+            title="Security Audit Logs"
+            subtitle="Immutable audit log trail across authentication, orders, inventory, and role changes."
+            badge={<Badge variant="info">AWS DynamoDB Protected</Badge>}
+          />
 
-          <button onClick={fetchLogs} className="btn btn-outline btn-sm">
-            🔄 Refresh Trail
-          </button>
-        </div>
+          {error && (
+            <div
+              style={{
+                padding: "14px",
+                backgroundColor: "var(--color-error-light)",
+                color: "var(--color-error)",
+                borderRadius: "var(--radius-md)",
+                marginBottom: "20px"
+              }}
+            >
+              {error}
+            </div>
+          )}
 
-        {error && (
-          <div style={{ padding: "12px 16px", background: "#fee2e2", color: "#991b1b", borderRadius: "8px", marginBottom: "20px" }}>
-            {error}
-          </div>
-        )}
+          {/* Filter Bar */}
+          <div
+            className="card"
+            style={{
+              padding: "16px 20px",
+              marginBottom: "24px",
+              display: "flex",
+              gap: "14px",
+              flexWrap: "wrap",
+              alignItems: "center",
+              justifyContent: "space-between"
+            }}
+          >
+            <div style={{ display: "flex", gap: "12px", flexWrap: "wrap", flex: 1, minWidth: "280px" }}>
+              <div style={{ position: "relative", minWidth: "260px", flex: 1 }}>
+                <Search
+                  size={16}
+                  style={{
+                    position: "absolute",
+                    left: "14px",
+                    top: "50%",
+                    transform: "translateY(-50%)",
+                    color: "var(--color-text-muted)"
+                  }}
+                />
+                <input
+                  type="text"
+                  placeholder="Search logs by action, actor email, or target ID..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="form-control"
+                  style={{ paddingLeft: "38px" }}
+                />
+              </div>
 
-        {/* Filter and Search Bar */}
-        <div className="admin-card" style={{ marginBottom: "24px", padding: "16px 20px" }}>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 2fr", gap: "16px" }}>
-            <div>
-              <label style={{ display: "block", fontSize: "0.8rem", fontWeight: "600", color: "#64748b", marginBottom: "6px" }}>
-                Filter by Category
-              </label>
-              <select
-                className="form-control"
-                value={categoryFilter}
-                onChange={(e) => setCategoryFilter(e.target.value)}
+              <div style={{ minWidth: "150px" }}>
+                <select
+                  value={categoryFilter}
+                  onChange={(e) => setCategoryFilter(e.target.value)}
+                  className="form-control"
+                >
+                  <option value="ALL">All Categories</option>
+                  <option value="AUTH">AUTH</option>
+                  <option value="ORDER">ORDER</option>
+                  <option value="PAYMENT">PAYMENT</option>
+                  <option value="PRODUCT">PRODUCT</option>
+                  <option value="COUPON">COUPON</option>
+                  <option value="EMAIL">EMAIL</option>
+                </select>
+              </div>
+
+              <div style={{ minWidth: "140px" }}>
+                <select
+                  value={statusFilter}
+                  onChange={(e) => setStatusFilter(e.target.value)}
+                  className="form-control"
+                >
+                  <option value="ALL">All Outcomes</option>
+                  <option value="SUCCESS">SUCCESS</option>
+                  <option value="WARNING">WARNING</option>
+                  <option value="FAILURE">FAILURE</option>
+                </select>
+              </div>
+            </div>
+
+            {(searchTerm || categoryFilter !== "ALL" || statusFilter !== "ALL") && (
+              <button
+                type="button"
+                onClick={() => {
+                  setSearchTerm("");
+                  setCategoryFilter("ALL");
+                  setStatusFilter("ALL");
+                }}
+                className="btn btn-secondary btn-sm"
               >
-                <option value="ALL">All Categories</option>
-                <option value="ORDER">Orders</option>
-                <option value="PAYMENT">Payments</option>
-                <option value="AUTH">Authentication</option>
-                <option value="PRODUCT">Inventory & Products</option>
-                <option value="COUPON">Coupons</option>
-                <option value="EMAIL">Email Dispatch</option>
-              </select>
-            </div>
-
-            <div>
-              <label style={{ display: "block", fontSize: "0.8rem", fontWeight: "600", color: "#64748b", marginBottom: "6px" }}>
-                Filter by Status
-              </label>
-              <select
-                className="form-control"
-                value={statusFilter}
-                onChange={(e) => setStatusFilter(e.target.value)}
-              >
-                <option value="ALL">All Statuses</option>
-                <option value="SUCCESS">Success Only</option>
-                <option value="WARNING">Warnings</option>
-                <option value="FAILURE">Failures</option>
-              </select>
-            </div>
-
-            <div>
-              <label style={{ display: "block", fontSize: "0.8rem", fontWeight: "600", color: "#64748b", marginBottom: "6px" }}>
-                Search Action or Actor
-              </label>
-              <input
-                type="text"
-                className="form-control"
-                placeholder="Search by action, email, or order ID..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-              />
-            </div>
-          </div>
-        </div>
-
-        {/* Audit Log Table */}
-        <div className="admin-card">
-          <div className="admin-card-header">
-            <h3 style={{ margin: 0, fontSize: "1.1rem", color: "#1e293b" }}>
-              Audit Events ({filteredLogs.length})
-            </h3>
+                <RotateCcw size={14} />
+                <span>Reset</span>
+              </button>
+            )}
           </div>
 
           {loading ? (
-            <div style={{ padding: "40px", textAlign: "center", color: "#64748b" }}>Loading audit records...</div>
-          ) : filteredLogs.length === 0 ? (
-            <div style={{ padding: "40px", textAlign: "center", color: "#64748b" }}>
-              No audit logs matched your query.
-            </div>
-          ) : (
-            <div className="table-responsive">
-              <table className="table" style={{ width: "100%", borderCollapse: "collapse" }}>
+            <div className="table-container">
+              <table>
                 <thead>
-                  <tr style={{ background: "#f8fafc", textAlign: "left", borderBottom: "2px solid #e2e8f0" }}>
-                    <th style={{ padding: "12px 16px" }}>Timestamp</th>
-                    <th style={{ padding: "12px 16px" }}>Category</th>
-                    <th style={{ padding: "12px 16px" }}>Action</th>
-                    <th style={{ padding: "12px 16px" }}>Status</th>
-                    <th style={{ padding: "12px 16px" }}>Actor</th>
-                    <th style={{ padding: "12px 16px" }}>Target</th>
-                    <th style={{ padding: "12px 16px" }}>Context Details</th>
+                  <tr>
+                    <th>Timestamp</th>
+                    <th>Category</th>
+                    <th>Action</th>
+                    <th>Actor Identity</th>
+                    <th>Status</th>
+                    <th style={{ textAlign: "right" }}>Inspect</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredLogs.map((log) => {
-                    return (
-                      <tr key={log.logId || log._id} style={{ borderBottom: "1px solid #f1f5f9" }}>
-                        <td style={{ padding: "12px 16px", fontSize: "0.85rem", color: "#64748b", whiteSpace: "nowrap" }}>
-                          {new Date(log.timestamp).toLocaleString()}
-                        </td>
-                        <td style={{ padding: "12px 16px" }}>
-                          {getCategoryBadge(log.category)}
-                        </td>
-                        <td style={{ padding: "12px 16px" }}>
-                          <strong style={{ color: "#0f172a", fontSize: "0.88rem" }}>{log.action}</strong>
-                        </td>
-                        <td style={{ padding: "12px 16px" }}>
-                          {getStatusBadge(log.status)}
-                        </td>
-                        <td style={{ padding: "12px 16px", fontSize: "0.85rem" }}>
-                          <div style={{ color: "#0f172a", fontWeight: "500" }}>{log.actor?.email || "anonymous"}</div>
-                          <div style={{ color: "#94a3b8", fontSize: "0.75rem" }}>Role: {log.actor?.role || "user"}</div>
-                        </td>
-                        <td style={{ padding: "12px 16px", fontSize: "0.85rem", color: "#475569" }}>
-                          {log.target?.type ? `${log.target.type}: ${log.target.id || log.target.name}` : "-"}
-                        </td>
-                        <td style={{ padding: "12px 16px", fontSize: "0.8rem", color: "#64748b", maxWidth: "260px" }}>
-                          <code>{typeof log.details === "object" ? JSON.stringify(log.details) : String(log.details)}</code>
-                        </td>
-                      </tr>
-                    );
-                  })}
+                  <TableRowSkeleton cols={6} />
+                  <TableRowSkeleton cols={6} />
+                  <TableRowSkeleton cols={6} />
+                </tbody>
+              </table>
+            </div>
+          ) : filteredLogs.length === 0 ? (
+            <EmptyState
+              icon={ScrollText}
+              title="No audit events found"
+              description="No audit logs matched your search or category filters."
+            />
+          ) : (
+            <div className="table-container">
+              <table>
+                <thead>
+                  <tr>
+                    <th style={{ width: "20%" }}>Timestamp</th>
+                    <th style={{ width: "12%" }}>Category</th>
+                    <th style={{ width: "26%" }}>Action Performed</th>
+                    <th style={{ width: "22%" }}>Actor Identity</th>
+                    <th style={{ width: "12%" }}>Status</th>
+                    <th style={{ textAlign: "right" }}>Inspect</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredLogs.map((log, idx) => (
+                    <tr key={log._id || log.id || idx}>
+                      <td style={{ fontSize: "0.82rem", color: "var(--color-text-muted)" }}>
+                        {new Date(log.timestamp).toLocaleString()}
+                      </td>
+                      <td>
+                        <Badge variant="neutral">{log.category}</Badge>
+                      </td>
+                      <td>
+                        <strong style={{ fontFamily: "monospace", fontSize: "0.88rem", color: "var(--color-text-primary)" }}>
+                          {log.action}
+                        </strong>
+                      </td>
+                      <td>
+                        <div>
+                          <span style={{ fontSize: "0.85rem", color: "var(--color-text-primary)", display: "block" }}>
+                            {log.actor?.email || log.actor?.userId || "System Daemon"}
+                          </span>
+                          <span style={{ fontSize: "0.75rem", color: "var(--color-text-muted)" }}>
+                            Role: {log.actor?.role || "system"} • IP: {log.actor?.ip || "hidden"}
+                          </span>
+                        </div>
+                      </td>
+                      <td>
+                        <Badge
+                          variant={
+                            log.status === "SUCCESS"
+                              ? "success"
+                              : log.status === "WARNING"
+                              ? "warning"
+                              : "danger"
+                          }
+                        >
+                          {log.status}
+                        </Badge>
+                      </td>
+                      <td>
+                        <div style={{ display: "flex", justifyContent: "flex-end" }}>
+                          <button
+                            type="button"
+                            onClick={() => setSelectedLog(log)}
+                            className="btn btn-secondary btn-sm"
+                            title="Inspect Payload"
+                          >
+                            <Eye size={13} />
+                            <span>Payload</span>
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
                 </tbody>
               </table>
             </div>
           )}
-        </div>
+
+          {/* INSPECT LOG MODAL */}
+          <Modal
+            isOpen={Boolean(selectedLog)}
+            onClose={() => setSelectedLog(null)}
+            title="🔍 Audit Log Event Payload"
+            maxWidth="640px"
+          >
+            {selectedLog && (
+              <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px", fontSize: "0.85rem" }}>
+                  <div>
+                    <span style={{ color: "var(--color-text-muted)" }}>Action:</span>
+                    <div><strong>{selectedLog.action}</strong></div>
+                  </div>
+                  <div>
+                    <span style={{ color: "var(--color-text-muted)" }}>Category:</span>
+                    <div><strong>{selectedLog.category}</strong></div>
+                  </div>
+                  <div>
+                    <span style={{ color: "var(--color-text-muted)" }}>Actor:</span>
+                    <div>{selectedLog.actor?.email || selectedLog.actor?.role || "System"}</div>
+                  </div>
+                  <div>
+                    <span style={{ color: "var(--color-text-muted)" }}>Timestamp:</span>
+                    <div>{new Date(selectedLog.timestamp).toISOString()}</div>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="form-label">Full Event JSON Payload</label>
+                  <pre
+                    style={{
+                      backgroundColor: "var(--color-surface-subtle)",
+                      border: "1px solid var(--color-border)",
+                      borderRadius: "var(--radius-sm)",
+                      padding: "14px",
+                      fontSize: "0.8rem",
+                      color: "var(--color-text-primary)",
+                      overflowX: "auto",
+                      maxHeight: "260px"
+                    }}
+                  >
+                    {JSON.stringify(selectedLog, null, 2)}
+                  </pre>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => setSelectedLog(null)}
+                  className="btn btn-secondary"
+                  style={{ marginTop: "8px" }}
+                >
+                  Close
+                </button>
+              </div>
+            )}
+          </Modal>
+        </main>
       </div>
     </>
   );
 }
 
 export default AdminAuditLogs;
-

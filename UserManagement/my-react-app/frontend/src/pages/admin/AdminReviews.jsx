@@ -1,7 +1,12 @@
 import { useState, useEffect } from "react";
 import Navbar from "../../components/Navbar";
 import AdminSidebar from "../../components/AdminSidebar";
+import PageHeader from "../../components/ui/PageHeader";
+import Badge from "../../components/ui/Badge";
+import EmptyState from "../../components/ui/EmptyState";
+import { TableRowSkeleton } from "../../components/ui/LoadingSkeleton";
 import { API_URL } from "../../config/api";
+import { Star, Search, Trash2, MessageSquare, AlertCircle } from "lucide-react";
 
 const ITEMS_PER_PAGE = 20;
 
@@ -26,7 +31,7 @@ function AdminReviews() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.message || "Failed to load reviews");
-      setReviews(data);
+      setReviews(Array.isArray(data) ? data : []);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -48,14 +53,13 @@ function AdminReviews() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.message || "Failed to delete review");
 
-      setReviews((prev) => prev.filter((r) => r._id !== reviewId));
+      setReviews((prev) => prev.filter((r) => (r._id || r.id) !== reviewId));
       alert("Review deleted successfully!");
     } catch (err) {
       alert(err.message);
     }
   }
 
-  // Search filtering logic
   const filteredReviews = reviews.filter((r) => {
     const term = search.toLowerCase().trim();
     if (!term) return true;
@@ -67,7 +71,6 @@ function AdminReviews() {
     );
   });
 
-  // 20 items per page pagination
   const totalPages = Math.ceil(filteredReviews.length / ITEMS_PER_PAGE) || 1;
   const paginatedReviews = filteredReviews.slice(
     (currentPage - 1) * ITEMS_PER_PAGE,
@@ -85,65 +88,116 @@ function AdminReviews() {
       <div className="admin-layout">
         <AdminSidebar />
         <main className="admin-content">
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "20px", flexWrap: "wrap", gap: "15px" }}>
-            <div>
-              <h2>Customer Reviews Management</h2>
-              <p style={{ color: "#64748b", fontSize: "0.9rem" }}>
-                Monitor and moderate customer ratings and product feedback.
-              </p>
-            </div>
-
-            <div style={{ display: "flex", alignItems: "center", gap: "12px", flexWrap: "wrap" }}>
-              <input
-                type="text"
-                className="form-control"
-                placeholder="🔍 Search reviews by customer, product, or comment..."
-                style={{ width: "350px", fontSize: "0.9rem" }}
-                value={search}
-                onChange={handleSearchChange}
-              />
-              <span style={{ fontSize: "0.88rem", color: "#64748b", fontWeight: "500" }}>
-                Total: {filteredReviews.length}
-              </span>
-            </div>
-          </div>
+          <PageHeader
+            title="Customer Reviews"
+            subtitle="Moderate customer ratings, product satisfaction, and buyer feedback."
+            badge={<Badge variant="info">{reviews.length} Reviews</Badge>}
+          />
 
           {error && (
-            <div style={{ padding: "12px", background: "#fee2e2", color: "#991b1b", borderRadius: "6px", marginBottom: "20px" }}>
+            <div
+              style={{
+                padding: "14px",
+                backgroundColor: "var(--color-error-light)",
+                color: "var(--color-error)",
+                borderRadius: "var(--radius-md)",
+                marginBottom: "20px"
+              }}
+            >
               {error}
             </div>
           )}
 
-          {loading ? (
-            <p>Loading reviews...</p>
-          ) : filteredReviews.length === 0 ? (
-            <div style={{ background: "white", padding: "40px", textAlign: "center", borderRadius: "8px", border: "1px solid #e2e8f0" }}>
-              <p style={{ color: "#64748b" }}>
-                {search ? `No reviews found matching "${search}".` : "No customer reviews submitted yet."}
-              </p>
+          {/* Search Bar */}
+          <div
+            className="card"
+            style={{
+              padding: "16px 20px",
+              marginBottom: "24px",
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+              flexWrap: "wrap",
+              gap: "14px"
+            }}
+          >
+            <div style={{ position: "relative", width: "100%", maxWidth: "380px" }}>
+              <Search
+                size={16}
+                style={{
+                  position: "absolute",
+                  left: "14px",
+                  top: "50%",
+                  transform: "translateY(-50%)",
+                  color: "var(--color-text-muted)"
+                }}
+              />
+              <input
+                type="text"
+                className="form-control"
+                placeholder="Search reviews by customer, product, comment..."
+                style={{ paddingLeft: "38px" }}
+                value={search}
+                onChange={handleSearchChange}
+              />
             </div>
+
+            <span style={{ fontSize: "0.88rem", color: "var(--color-text-secondary)" }}>
+              Showing <strong>{filteredReviews.length}</strong> submitted ratings
+            </span>
+          </div>
+
+          {loading ? (
+            <div className="table-container">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Product</th>
+                    <th>Customer</th>
+                    <th>Rating</th>
+                    <th>Feedback</th>
+                    <th>Date</th>
+                    <th style={{ textAlign: "right" }}>Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <TableRowSkeleton cols={6} />
+                  <TableRowSkeleton cols={6} />
+                  <TableRowSkeleton cols={6} />
+                </tbody>
+              </table>
+            </div>
+          ) : filteredReviews.length === 0 ? (
+            <EmptyState
+              icon={MessageSquare}
+              title="No customer reviews found"
+              description={search ? `No reviews matched "${search}".` : "No customer reviews have been submitted yet."}
+            />
           ) : (
             <>
               <div className="table-container">
                 <table>
                   <thead>
                     <tr>
-                      <th>Product</th>
-                      <th>Customer</th>
-                      <th>Rating</th>
-                      <th style={{ width: "38%" }}>Review Comment</th>
-                      <th>Date</th>
-                      <th>Action</th>
+                      <th style={{ width: "24%" }}>Product</th>
+                      <th style={{ width: "18%" }}>Customer</th>
+                      <th style={{ width: "12%" }}>Rating</th>
+                      <th style={{ width: "32%" }}>Feedback Comment</th>
+                      <th style={{ width: "14%" }}>Date</th>
+                      <th style={{ textAlign: "right" }}>Action</th>
                     </tr>
                   </thead>
                   <tbody>
                     {paginatedReviews.map((rev) => {
+                      const id = rev._id || rev.id;
                       const img = rev.productImage
-                        ? (rev.productImage.startsWith("http") ? rev.productImage : `${API_URL}/${rev.productImage.replace(/^\//, "")}`)
+                        ? rev.productImage.startsWith("http")
+                          ? rev.productImage
+                          : `${API_URL}/${rev.productImage.replace(/^\//, "")}`
                         : "https://via.placeholder.com/45";
 
                       return (
-                        <tr key={rev._id}>
+                        <tr key={id}>
                           <td>
                             <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
                               <img
@@ -153,43 +207,47 @@ function AdminReviews() {
                                   e.currentTarget.onerror = null;
                                   e.currentTarget.src = "https://via.placeholder.com/45";
                                 }}
-                                style={{ width: "40px", height: "40px", objectFit: "cover", borderRadius: "4px" }}
+                                style={{ width: "40px", height: "40px", objectFit: "cover", borderRadius: "var(--radius-xs)" }}
                               />
-                              <span style={{ fontWeight: "500", fontSize: "0.92rem" }}>{rev.productName}</span>
+                              <strong style={{ fontSize: "0.9rem", color: "var(--color-text-primary)" }}>
+                                {rev.productName}
+                              </strong>
                             </div>
                           </td>
                           <td>
-                            <span style={{ fontWeight: "500" }}>{rev.userName || "Customer"}</span>
-                          </td>
-                          <td>
-                            <span style={{
-                              display: "inline-block",
-                              padding: "2px 8px",
-                              borderRadius: "4px",
-                              fontWeight: "bold",
-                              fontSize: "0.85rem",
-                              background: rev.rating >= 4 ? "#dcfce7" : rev.rating >= 3 ? "#fef3c7" : "#fee2e2",
-                              color: rev.rating >= 4 ? "#166534" : rev.rating >= 3 ? "#92400e" : "#991b1b"
-                            }}>
-                              ⭐ {rev.rating} / 5
+                            <span style={{ fontWeight: "600", color: "var(--color-text-primary)" }}>
+                              {rev.userName || "Customer"}
                             </span>
                           </td>
                           <td>
-                            <p style={{ margin: 0, fontSize: "0.88rem", color: "#334155", lineHeight: "1.4" }}>
+                            <Badge
+                              variant={rev.rating >= 4 ? "success" : rev.rating >= 3 ? "warning" : "danger"}
+                              icon={Star}
+                            >
+                              {rev.rating} / 5
+                            </Badge>
+                          </td>
+                          <td>
+                            <p style={{ margin: 0, fontSize: "0.88rem", color: "var(--color-text-secondary)", lineHeight: "1.4" }}>
                               "{rev.comment}"
                             </p>
                           </td>
-                          <td style={{ fontSize: "0.85rem", color: "#64748b", whiteSpace: "nowrap" }}>
-                            {new Date(rev.createdAt).toLocaleDateString()}
+                          <td>
+                            <span style={{ fontSize: "0.82rem", color: "var(--color-text-muted)" }}>
+                              {rev.createdAt ? new Date(rev.createdAt).toLocaleDateString() : "-"}
+                            </span>
                           </td>
                           <td>
-                            <button
-                              onClick={() => handleDeleteReview(rev.productId, rev._id, rev.userName)}
-                              className="btn btn-danger btn-sm"
-                              style={{ padding: "5px 10px", fontSize: "0.85rem" }}
-                            >
-                              🗑️ Delete
-                            </button>
+                            <div style={{ display: "flex", justifyContent: "flex-end" }}>
+                              <button
+                                onClick={() => handleDeleteReview(rev.productId, id, rev.userName)}
+                                className="btn btn-danger btn-sm"
+                                title="Delete Review"
+                              >
+                                <Trash2 size={13} />
+                                <span>Delete</span>
+                              </button>
+                            </div>
                           </td>
                         </tr>
                       );
@@ -198,20 +256,26 @@ function AdminReviews() {
                 </table>
               </div>
 
-              {/* Pagination Controls at Bottom (20 per page) */}
               {totalPages > 1 && (
-                <div style={{ display: "flex", justifyContent: "center", alignItems: "center", gap: "10px", marginTop: "24px" }}>
+                <div
+                  style={{
+                    display: "flex",
+                    justifyContent: "center",
+                    alignItems: "center",
+                    gap: "12px",
+                    marginTop: "24px"
+                  }}
+                >
                   <button
                     type="button"
                     onClick={() => setCurrentPage((p) => Math.max(p - 1, 1))}
                     disabled={currentPage === 1}
-                    className="btn btn-outline btn-sm"
-                    style={{ padding: "6px 14px" }}
+                    className="btn btn-secondary btn-sm"
                   >
                     ← Previous
                   </button>
 
-                  <span style={{ fontSize: "0.9rem", color: "#475569" }}>
+                  <span style={{ fontSize: "0.88rem", color: "var(--color-text-secondary)" }}>
                     Page <strong>{currentPage}</strong> of <strong>{totalPages}</strong>
                   </span>
 
@@ -219,8 +283,7 @@ function AdminReviews() {
                     type="button"
                     onClick={() => setCurrentPage((p) => Math.min(p + 1, totalPages))}
                     disabled={currentPage === totalPages}
-                    className="btn btn-outline btn-sm"
-                    style={{ padding: "6px 14px" }}
+                    className="btn btn-secondary btn-sm"
                   >
                     Next →
                   </button>
@@ -235,4 +298,3 @@ function AdminReviews() {
 }
 
 export default AdminReviews;
-

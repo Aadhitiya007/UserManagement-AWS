@@ -14,23 +14,30 @@ function buildLambdaPackage() {
 
   console.log("Creating lambda-deployment.zip containing production runtime files...");
 
-  const filesToInclude = [
-    `'${path.join(backendDir, "lambda.js")}'`,
-    `'${path.join(backendDir, "server.js")}'`,
-    `'${path.join(backendDir, "package.json")}'`,
-    `'${path.join(backendDir, "config")}'`,
-    `'${path.join(backendDir, "controllers")}'`,
-    `'${path.join(backendDir, "middleware")}'`,
-    `'${path.join(backendDir, "models")}'`,
-    `'${path.join(backendDir, "repositories")}'`,
-    `'${path.join(backendDir, "routes")}'`,
-    `'${path.join(backendDir, "utils")}'`,
-    `'${path.join(backendDir, "node_modules")}'`
+  const items = [
+    "lambda.js",
+    "server.js",
+    "package.json",
+    "config",
+    "controllers",
+    "middleware",
+    "repositories",
+    "routes",
+    "services",
+    "utils",
+    "node_modules"
   ];
 
-  const psCommand = `powershell -NoProfile -Command "$ProgressPreference = 'SilentlyContinue'; Compress-Archive -Path ${filesToInclude.join(", ")} -DestinationPath '${zipOutput}' -CompressionLevel Fastest"`;
-
-  execSync(psCommand, { stdio: "inherit" });
+  try {
+    // Fast native zip creation with Windows bsdtar
+    const cmd = `tar -a -c -f "${zipOutput}" ${items.join(" ")}`;
+    execSync(cmd, { cwd: backendDir, stdio: "inherit" });
+  } catch (err) {
+    console.log("Fast tar zip failed, falling back to Compress-Archive...");
+    const filesToInclude = items.map(f => `'${path.join(backendDir, f)}'`);
+    const psCommand = `powershell -NoProfile -Command "$ProgressPreference = 'SilentlyContinue'; Compress-Archive -Path ${filesToInclude.join(", ")} -DestinationPath '${zipOutput}' -CompressionLevel Fastest"`;
+    execSync(psCommand, { stdio: "inherit" });
+  }
 
   const stats = fs.statSync(zipOutput);
   const sizeMb = (stats.size / (1024 * 1024)).toFixed(2);

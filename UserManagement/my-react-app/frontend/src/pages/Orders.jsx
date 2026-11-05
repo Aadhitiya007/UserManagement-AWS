@@ -1,11 +1,31 @@
 import { useState, useEffect } from "react";
+import { useNavigate, Link } from "react-router-dom";
 import { io } from "socket.io-client";
+import { 
+  Package, 
+  Search, 
+  FileText, 
+  Truck, 
+  CheckCircle2, 
+  Clock, 
+  AlertCircle, 
+  ShoppingBag, 
+  ChevronRight,
+  ArrowRight,
+  Calendar,
+  CreditCard,
+  Tag
+} from "lucide-react";
 import Navbar from "../components/Navbar";
 import { API_URL } from "../config/api";
+import Badge from "../components/ui/Badge";
+import EmptyState from "../components/ui/EmptyState";
+import LoadingSkeleton from "../components/ui/LoadingSkeleton";
 
 const ITEMS_PER_PAGE = 20;
 
 function Orders() {
+  const navigate = useNavigate();
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -13,24 +33,31 @@ function Orders() {
   const [currentPage, setCurrentPage] = useState(1);
 
   useEffect(() => {
+    const storedUser = JSON.parse(localStorage.getItem("user") || "{}");
+    if (storedUser.role === "admin" || storedUser.role === "manager") {
+      navigate("/admin/orders", { replace: true });
+      return;
+    }
+
     fetchMyOrders();
 
     const token = localStorage.getItem("token");
-    if (!token || (API_URL && API_URL.includes("execute-api"))) return;
+    if (!token) return;
+
+    // Serverless AWS API Gateway does not host long-polling Socket.IO servers
+    if (API_URL && API_URL.includes("execute-api")) return;
 
     const socket = io(API_URL, {
-      auth: { token }
+      auth: { token },
+      transports: ["websocket"]
     });
 
-    const storedUser = JSON.parse(localStorage.getItem("user") || "{}");
     const userId = storedUser.id || storedUser._id;
     if (userId) {
       socket.emit("joinUserRoom", userId);
     }
 
     socket.on("orderStatusUpdated", (data) => {
-      console.log("Order status updated:", data);
-
       if (data.cancelled) {
         setOrders((currentOrders) =>
           currentOrders.filter((order) => order._id !== data.orderId)
@@ -54,7 +81,10 @@ function Orders() {
 
   async function fetchMyOrders() {
     const token = localStorage.getItem("token");
-    if (!token || (API_URL && API_URL.includes("execute-api"))) return;
+    if (!token) {
+      setLoading(false);
+      return;
+    }
 
     try {
       setLoading(true);
@@ -63,7 +93,7 @@ function Orders() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.message || "Failed to fetch orders");
-      setOrders(data);
+      setOrders(Array.isArray(data) ? data : (data.orders || []));
     } catch (err) {
       setError(err.message);
     } finally {
@@ -71,27 +101,40 @@ function Orders() {
     }
   }
 
-  function getStatusBadge(status) {
+  function renderStatusBadge(status) {
     switch (status) {
-      case "Delivered": return "badge badge-success";
-      case "Shipped": return "badge badge-info";
-      case "Processing": return "badge badge-warning";
-      case "Cancelled": return "badge badge-danger";
-      default: return "badge badge-info";
+      case "Delivered":
+        return <Badge variant="success">Delivered</Badge>;
+      case "Shipped":
+        return <Badge variant="primary">Shipped</Badge>;
+      case "Processing":
+        return <Badge variant="warning">Processing</Badge>;
+      case "Cancelled":
+        return <Badge variant="danger">Cancelled</Badge>;
+      default:
+        return <Badge variant="neutral">{status || "Pending"}</Badge>;
     }
   }
 
-  // Search filter by Order ID or Product Name
-  const filteredOrders = orders.filter((order) => {
+  function renderPaymentBadge(paymentStatus) {
+    if (paymentStatus === "Paid") {
+      return <Badge variant="success">Paid</Badge>;
+    }
+    if (paymentStatus === "Failed") {
+      return <Badge variant="danger">Payment Failed</Badge>;
+    }
+    return <Badge variant="warning">Payment Pending</Badge>;
+  }
+
+  // Filter orders
+  const filteredOrders = (Array.isArray(orders) ? orders : []).filter((order) => {
     const term = searchTerm.toLowerCase().trim();
     if (!term) return true;
-    return (
-      order._id.toLowerCase().includes(term) ||
-      order.products.some((p) => p.name.toLowerCase().includes(term))
-    );
+    const idStr = String(order._id || order.id || "").toLowerCase();
+    const hasProduct = Array.isArray(order.products) && order.products.some((p) => (p.name || "").toLowerCase().includes(term));
+    return idStr.includes(term) || hasProduct;
   });
 
-  // Pagination (20 items per page)
   const totalPages = Math.ceil(filteredOrders.length / ITEMS_PER_PAGE) || 1;
   const paginatedOrders = filteredOrders.slice(
     (currentPage - 1) * ITEMS_PER_PAGE,
@@ -101,148 +144,186 @@ function Orders() {
   return (
     <>
       <Navbar />
-      <div className="container">
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "20px", flexWrap: "wrap", gap: "10px" }}>
-          <h2>My Orders</h2>
+      <div style={{ maxWidth: "1000px", margin: "40px auto", padding: "0 20px" }}>
+        
+        {/* Header with Title and Search */}
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "28px", flexWrap: "wrap", gap: "16px" }}>
+          <div>
+            <h1 style={{ fontSize: "1.75rem", fontWeight: 800, color: "var(--text-primary)", letterSpacing: "-0.02em" }}>
+              My Orders
+            </h1>
+            <p style={{ color: "var(--text-secondary)", fontSize: "0.9rem", marginTop: "4px" }}>
+              Track shipments, review past purchases, and download official tax invoices.
+            </p>
+          </div>
+
           {orders.length > 0 && (
-            <div style={{ width: "300px" }}>
+            <div style={{ position: "relative", minWidth: "280px" }}>
+              <Search size={16} style={{ position: "absolute", left: "14px", top: "50%", transform: "translateY(-50%)", color: "var(--text-secondary)" }} />
               <input
                 type="text"
-                placeholder="🔍 Search my orders by ID or item..."
+                placeholder="Search orders or items..."
                 value={searchTerm}
                 onChange={(e) => {
                   setSearchTerm(e.target.value);
                   setCurrentPage(1);
                 }}
                 className="form-control"
-                style={{ padding: "8px 12px", fontSize: "0.9rem" }}
+                style={{ paddingLeft: "40px", height: "42px", borderRadius: "10px" }}
               />
             </div>
           )}
         </div>
 
         {error && (
-          <div style={{ padding: "12px", background: "#fee2e2", color: "#991b1b", borderRadius: "6px", marginBottom: "20px" }}>
-            {error}
+          <div style={{ padding: "14px 18px", background: "rgba(220, 38, 38, 0.1)", color: "var(--error)", borderRadius: "10px", marginBottom: "24px", display: "flex", alignItems: "center", gap: "10px" }}>
+            <AlertCircle size={18} />
+            <span>{error}</span>
           </div>
         )}
 
         {loading ? (
-          <p>Loading orders...</p>
-        ) : orders.length === 0 ? (
-          <div style={{ background: "white", padding: "40px", textAlign: "center", borderRadius: "8px", border: "1px solid #e2e8f0" }}>
-            <p style={{ color: "#6b7280" }}>You have not placed any orders yet.</p>
+          <div className="card" style={{ padding: "32px" }}>
+            <LoadingSkeleton lines={5} />
           </div>
+        ) : orders.length === 0 ? (
+          <EmptyState
+            icon={Package}
+            title="No orders yet"
+            description="You haven't placed any orders yet. Discover our latest collections and start shopping!"
+            actionLabel="Explore Products"
+            onAction={() => navigate("/products")}
+          />
         ) : filteredOrders.length === 0 ? (
-          <div style={{ background: "white", padding: "40px", textAlign: "center", borderRadius: "8px", border: "1px solid #e2e8f0" }}>
-            <p style={{ color: "#6b7280" }}>No orders found matching "{searchTerm}".</p>
+          <div className="card" style={{ padding: "48px 24px", textAlign: "center" }}>
+            <Search size={32} style={{ color: "var(--text-secondary)", marginBottom: "12px" }} />
+            <h3 style={{ fontSize: "1.1rem", fontWeight: 700, color: "var(--text-primary)", marginBottom: "6px" }}>
+              No orders found
+            </h3>
+            <p style={{ color: "var(--text-secondary)", fontSize: "0.88rem" }}>
+              No orders matched your search for "{searchTerm}".
+            </p>
           </div>
         ) : (
-          <>
-            <div style={{ display: "flex", flexDirection: "column", gap: "20px" }}>
-              {paginatedOrders.map((order) => (
-                <div key={order._id} style={{ background: "white", padding: "20px", borderRadius: "8px", border: "1px solid #e2e8f0" }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "15px", borderBottom: "1px solid #f1f5f9", paddingBottom: "10px" }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: "20px" }}>
+            {paginatedOrders.map((order) => {
+              const orderId = order._id || order.id;
+              const formattedDate = order.createdAt ? new Date(order.createdAt).toLocaleDateString("en-IN", {
+                year: "numeric",
+                month: "short",
+                day: "numeric"
+              }) : "Recent";
+
+              return (
+                <div key={orderId} className="card" style={{ padding: "24px", borderRadius: "16px" }}>
+                  {/* Top Bar: Order ID, Date, Badges */}
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: "12px", borderBottom: "1px solid var(--border)", paddingBottom: "16px", marginBottom: "16px" }}>
                     <div>
-                      <span style={{ fontSize: "0.85rem", color: "#6b7280" }}>Order ID: #{order._id}</span>
-                      <br />
-                      <span style={{ fontSize: "0.85rem", color: "#94a3b8" }}>
-                        Placed on: {new Date(order.createdAt).toLocaleDateString()}
-                      </span>
+                      <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "4px" }}>
+                        <span style={{ fontSize: "0.85rem", color: "var(--text-secondary)" }}>Order ID:</span>
+                        <span style={{ fontWeight: 700, fontFamily: "monospace", fontSize: "0.95rem", color: "var(--text-primary)" }}>
+                          #{orderId}
+                        </span>
+                      </div>
+                      <div style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "0.82rem", color: "var(--text-secondary)" }}>
+                        <Calendar size={13} /> Placed on {formattedDate}
+                      </div>
                     </div>
-                    <div>
-                      <span className={getStatusBadge(order.status)}>{order.status}</span>
-                      {" "}
-                      <span 
-                        style={{
-                          marginLeft: "8px",
-                          padding: "4px 8px",
-                          borderRadius: "4px",
-                          fontSize: "0.8rem",
-                          fontWeight: "bold",
-                          background: order.paymentStatus === "Paid" 
-                            ? "#dcfce7" 
-                            : order.paymentStatus === "Failed" 
-                            ? "#fee2e2" 
-                            : "#fef3c7",
-                          color: order.paymentStatus === "Paid" 
-                            ? "#166534" 
-                            : order.paymentStatus === "Failed" 
-                            ? "#991b1b" 
-                            : "#92400e"
-                        }}
-                      >
-                        {order.paymentStatus === "Paid" 
-                          ? "Paid" 
-                          : order.paymentStatus === "Failed" 
-                          ? "Payment Failed" 
-                          : "Payment Pending"}
-                      </span>
+
+                    <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                      {renderStatusBadge(order.status)}
+                      {renderPaymentBadge(order.paymentStatus)}
                     </div>
                   </div>
 
-                  <div style={{ marginBottom: "15px" }}>
-                    {order.products.map((item, idx) => (
-                      <div key={idx} style={{ display: "flex", justifyContent: "space-between", margin: "8px 0", fontSize: "0.95rem" }}>
-                        <span>{item.name} × {item.quantity}</span>
-                        <span style={{ fontWeight: "500" }}>₹{item.price * item.quantity}</span>
+                  {/* Items List */}
+                  <div style={{ marginBottom: "20px" }}>
+                    {Array.isArray(order.products) && order.products.map((item, idx) => (
+                      <div key={idx} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 0", borderBottom: idx < order.products.length - 1 ? "1px dashed var(--border)" : "none" }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+                          <div style={{ width: "36px", height: "36px", borderRadius: "8px", background: "var(--background)", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--primary)" }}>
+                            <ShoppingBag size={18} />
+                          </div>
+                          <div>
+                            <div style={{ fontWeight: 600, fontSize: "0.92rem", color: "var(--text-primary)" }}>
+                              {item.name}
+                            </div>
+                            <div style={{ fontSize: "0.8rem", color: "var(--text-secondary)" }}>
+                              Qty: {item.quantity} × ₹{item.price}
+                            </div>
+                          </div>
+                        </div>
+
+                        <div style={{ fontWeight: 700, fontSize: "0.95rem", color: "var(--text-primary)" }}>
+                          ₹{item.price * item.quantity}
+                        </div>
                       </div>
                     ))}
                   </div>
 
-                  <div style={{ textAlign: "right", borderTop: "1px solid #f1f5f9", paddingTop: "10px", fontWeight: "bold", fontSize: "1.1rem" }}>
-                    {order.couponCode && (
-                      <div style={{ fontSize: "0.85rem", color: "#16a34a", marginBottom: "4px" }}>
-                        🏷️ Promo ({order.couponCode}): -₹{order.couponDiscount}
-                      </div>
-                    )}
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", width: "100%" }}>
+                  {/* Footer: Tax Invoice link & Total Amount */}
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "12px", borderTop: "1px solid var(--border)", paddingTop: "16px" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
                       <a
-                        href={`${API_URL}/api/orders/${order._id || order.id}/invoice`}
+                        href={`${API_URL}/api/orders/${orderId}/invoice?token=${encodeURIComponent(localStorage.getItem("token") || "")}`}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="btn btn-outline btn-sm"
-                        style={{ fontSize: "0.75rem", padding: "4px 8px" }}
+                        className="btn btn-secondary"
+                        style={{ fontSize: "0.82rem", padding: "8px 14px", display: "inline-flex", alignItems: "center", gap: "6px" }}
                       >
-                        📄 Tax Invoice
+                        <FileText size={14} /> Tax Invoice (PDF)
                       </a>
-                      <span>Total: <span style={{ color: "#2563eb" }}>₹{order.totalAmount}</span></span>
+
+                      {order.couponCode && (
+                        <span style={{ fontSize: "0.82rem", color: "var(--success)", display: "inline-flex", alignItems: "center", gap: "4px" }}>
+                          <Tag size={13} /> {order.couponCode} applied (-₹{order.couponDiscount})
+                        </span>
+                      )}
+                    </div>
+
+                    <div style={{ textAlign: "right" }}>
+                      <span style={{ fontSize: "0.82rem", color: "var(--text-secondary)", marginRight: "8px" }}>Total Paid:</span>
+                      <span style={{ fontSize: "1.25rem", fontWeight: 800, color: "var(--primary)" }}>
+                        ₹{order.totalAmount}
+                      </span>
                     </div>
                   </div>
+
                 </div>
-              ))}
-            </div>
+              );
+            })}
 
             {/* Pagination Controls */}
             {totalPages > 1 && (
-              <div style={{ display: "flex", justifyContent: "center", alignItems: "center", gap: "10px", marginTop: "24px" }}>
+              <div style={{ display: "flex", justifyContent: "center", alignItems: "center", gap: "12px", marginTop: "16px" }}>
                 <button
                   type="button"
                   onClick={() => setCurrentPage((p) => Math.max(p - 1, 1))}
                   disabled={currentPage === 1}
-                  className="btn btn-outline btn-sm"
-                  style={{ padding: "6px 14px" }}
+                  className="btn btn-secondary"
+                  style={{ padding: "8px 16px", fontSize: "0.85rem" }}
                 >
-                  ← Previous
+                  Previous
                 </button>
 
-                <span style={{ fontSize: "0.9rem", color: "#475569" }}>
-                  Page <strong>{currentPage}</strong> of <strong>{totalPages}</strong>
+                <span style={{ fontSize: "0.88rem", color: "var(--text-secondary)" }}>
+                  Page <strong style={{ color: "var(--text-primary)" }}>{currentPage}</strong> of <strong style={{ color: "var(--text-primary)" }}>{totalPages}</strong>
                 </span>
 
                 <button
                   type="button"
                   onClick={() => setCurrentPage((p) => Math.min(p + 1, totalPages))}
                   disabled={currentPage === totalPages}
-                  className="btn btn-outline btn-sm"
-                  style={{ padding: "6px 14px" }}
+                  className="btn btn-secondary"
+                  style={{ padding: "8px 16px", fontSize: "0.85rem" }}
                 >
-                  Next →
+                  Next
                 </button>
               </div>
             )}
-          </>
+          </div>
         )}
+
       </div>
     </>
   );

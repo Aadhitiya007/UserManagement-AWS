@@ -282,17 +282,24 @@ class OrderRepository {
       return response;
     } catch (err) {
       // 2. Fallback to Scan with FilterExpression if GSI does not yet exist
-      if (err.name === "ValidationException" || err.message.includes("Index") || err.message.includes("ResourceNotFoundException")) {
-        const scanParams = {
-          TableName: this.tableNames.ORDERS,
-          FilterExpression: "userId = :uid",
-          ExpressionAttributeValues: { ":uid": userId },
-          Limit: limit
-        };
-        const result = await this.docClient.send(new ScanCommand(scanParams));
-        const orders = (result.Items || []).map((item) => this._formatOrder(item));
-        orders.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
-        return { orders };
+      if (err.name === "ValidationException" || err.name === "ResourceNotFoundException" || err.message.includes("Index") || err.message.includes("ResourceNotFoundException")) {
+        try {
+          const scanParams = {
+            TableName: this.tableNames.ORDERS,
+            FilterExpression: "userId = :uid",
+            ExpressionAttributeValues: { ":uid": userId },
+            Limit: limit
+          };
+          const result = await this.docClient.send(new ScanCommand(scanParams));
+          const orders = (result.Items || []).map((item) => this._formatOrder(item));
+          orders.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+          return { orders };
+        } catch (scanErr) {
+          if (scanErr.name === "ResourceNotFoundException") {
+            return { orders: [] };
+          }
+          throw scanErr;
+        }
       }
       throw err;
     }

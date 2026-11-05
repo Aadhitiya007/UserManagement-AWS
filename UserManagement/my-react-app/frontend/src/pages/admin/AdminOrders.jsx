@@ -2,7 +2,22 @@ import { useState, useEffect } from "react";
 import { io } from "socket.io-client";
 import Navbar from "../../components/Navbar";
 import AdminSidebar from "../../components/AdminSidebar";
+import PageHeader from "../../components/ui/PageHeader";
+import Badge from "../../components/ui/Badge";
+import EmptyState from "../../components/ui/EmptyState";
+import { TableRowSkeleton } from "../../components/ui/LoadingSkeleton";
 import { API_URL } from "../../config/api";
+import {
+  ShoppingBag,
+  Search,
+  Filter,
+  CreditCard,
+  CheckCircle2,
+  Clock,
+  XCircle,
+  Truck,
+  RotateCcw
+} from "lucide-react";
 
 const ITEMS_PER_PAGE = 20;
 
@@ -30,13 +45,15 @@ function AdminOrders() {
 
     socket.on("orderStatusUpdated", (data) => {
       if (data.cancelled) {
-        setOrders((prevOrders) => prevOrders.filter((ord) => ord._id !== data.orderId));
+        setOrders((prevOrders) =>
+          prevOrders.filter((ord) => (ord._id || ord.id) !== data.orderId)
+        );
         return;
       }
 
       setOrders((prevOrders) =>
         prevOrders.map((ord) =>
-          ord._id === data.orderId
+          (ord._id || ord.id) === data.orderId
             ? { ...ord, status: data.status, paymentStatus: data.paymentStatus || ord.paymentStatus }
             : ord
         )
@@ -57,7 +74,7 @@ function AdminOrders() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.message || "Failed to fetch orders");
-      setOrders(data);
+      setOrders(Array.isArray(data) ? data : data.orders || []);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -80,7 +97,9 @@ function AdminOrders() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.message || "Failed to update status");
 
-      setOrders(orders.map((o) => (o._id === orderId ? { ...o, status: newStatus } : o)));
+      setOrders(
+        orders.map((o) => ((o._id || o.id) === orderId ? { ...o, status: newStatus } : o))
+      );
     } catch (err) {
       alert(err.message);
     }
@@ -89,12 +108,17 @@ function AdminOrders() {
   // Filter & Search Logic
   const filteredOrders = orders.filter((order) => {
     const term = searchTerm.toLowerCase().trim();
+    const orderId = String(order._id || order.id || "").toLowerCase();
+    const userName = String(order.userName || "").toLowerCase();
+    const userEmail = String(order.userEmail || "").toLowerCase();
+    const productNames = (order.products || []).map((p) => String(p.name).toLowerCase()).join(" ");
+
     const matchesSearch =
       !term ||
-      order._id.toLowerCase().includes(term) ||
-      (order.userName && order.userName.toLowerCase().includes(term)) ||
-      (order.userEmail && order.userEmail.toLowerCase().includes(term)) ||
-      order.products.some((p) => p.name.toLowerCase().includes(term));
+      orderId.includes(term) ||
+      userName.includes(term) ||
+      userEmail.includes(term) ||
+      productNames.includes(term);
 
     const currentPaymentStatus = order.paymentStatus || "Pending";
     const matchesPayment =
@@ -109,7 +133,6 @@ function AdminOrders() {
     return matchesSearch && matchesPayment && matchesStatus;
   });
 
-  // Pagination (20 items per page)
   const totalPages = Math.ceil(filteredOrders.length / ITEMS_PER_PAGE) || 1;
   const paginatedOrders = filteredOrders.slice(
     (currentPage - 1) * ITEMS_PER_PAGE,
@@ -121,83 +144,111 @@ function AdminOrders() {
     setCurrentPage(1);
   }
 
+  function getFulfillmentBadge(status) {
+    switch (status) {
+      case "Delivered":
+        return <Badge variant="success">Delivered</Badge>;
+      case "Shipped":
+        return <Badge variant="info">Shipped</Badge>;
+      case "Processing":
+        return <Badge variant="warning">Processing</Badge>;
+      case "Cancelled":
+        return <Badge variant="danger">Cancelled</Badge>;
+      default:
+        return <Badge variant="neutral">Pending</Badge>;
+    }
+  }
+
   return (
     <>
       <Navbar />
       <div className="admin-layout">
         <AdminSidebar />
         <main className="admin-content">
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "20px", flexWrap: "wrap", gap: "10px" }}>
-            <h2>Customer Orders Management</h2>
-            <span style={{ fontSize: "0.9rem", color: "#64748b", fontWeight: "500" }}>
-              Showing {filteredOrders.length > 0 ? (currentPage - 1) * ITEMS_PER_PAGE + 1 : 0}–
-              {Math.min(currentPage * ITEMS_PER_PAGE, filteredOrders.length)} of {filteredOrders.length} orders
-            </span>
-          </div>
+          <PageHeader
+            title="Customer Orders"
+            subtitle="Live order processing, payment verification, and shipment workflow."
+            badge={<Badge variant="info">{orders.length} Total Orders</Badge>}
+          />
 
           {error && (
-            <div style={{ padding: "12px", background: "#fee2e2", color: "#991b1b", borderRadius: "6px", marginBottom: "20px" }}>
+            <div
+              style={{
+                padding: "14px",
+                backgroundColor: "var(--color-error-light)",
+                color: "var(--color-error)",
+                borderRadius: "var(--radius-md)",
+                marginBottom: "20px"
+              }}
+            >
               {error}
             </div>
           )}
 
           {/* Search & Filter Toolbar */}
-          <div style={{
-            background: "white",
-            padding: "16px 20px",
-            borderRadius: "8px",
-            border: "1px solid #e2e8f0",
-            marginBottom: "20px",
-            display: "flex",
-            gap: "12px",
-            flexWrap: "wrap",
-            alignItems: "center"
-          }}>
-            {/* Search Input */}
-            <div style={{ flex: "1 1 280px" }}>
-              <input
-                type="text"
-                placeholder="🔍 Search by Customer, Email, Order ID, or Item..."
-                value={searchTerm}
-                onChange={(e) => handleFilterChange(setSearchTerm, e.target.value)}
-                className="form-control"
-                style={{ padding: "8px 12px", fontSize: "0.9rem" }}
-              />
+          <div
+            className="card"
+            style={{
+              padding: "16px 20px",
+              marginBottom: "24px",
+              display: "flex",
+              gap: "14px",
+              flexWrap: "wrap",
+              alignItems: "center",
+              justifyContent: "space-between"
+            }}
+          >
+            <div style={{ display: "flex", gap: "12px", flexWrap: "wrap", flex: 1, minWidth: "280px" }}>
+              <div style={{ position: "relative", minWidth: "260px", flex: 1 }}>
+                <Search
+                  size={16}
+                  style={{
+                    position: "absolute",
+                    left: "14px",
+                    top: "50%",
+                    transform: "translateY(-50%)",
+                    color: "var(--color-text-muted)"
+                  }}
+                />
+                <input
+                  type="text"
+                  placeholder="Search by customer, email, order ID, or item..."
+                  value={searchTerm}
+                  onChange={(e) => handleFilterChange(setSearchTerm, e.target.value)}
+                  className="form-control"
+                  style={{ paddingLeft: "38px" }}
+                />
+              </div>
+
+              <div style={{ minWidth: "150px" }}>
+                <select
+                  value={paymentFilter}
+                  onChange={(e) => handleFilterChange(setPaymentFilter, e.target.value)}
+                  className="form-control"
+                >
+                  <option value="ALL">💳 All Payments</option>
+                  <option value="Paid">🟢 Paid Only</option>
+                  <option value="Pending">🟡 Pending Only</option>
+                  <option value="Failed">🔴 Failed Only</option>
+                </select>
+              </div>
+
+              <div style={{ minWidth: "150px" }}>
+                <select
+                  value={statusFilter}
+                  onChange={(e) => handleFilterChange(setStatusFilter, e.target.value)}
+                  className="form-control"
+                >
+                  <option value="ALL">📦 All Fulfillment</option>
+                  <option value="Pending">Pending</option>
+                  <option value="Processing">Processing</option>
+                  <option value="Shipped">Shipped</option>
+                  <option value="Delivered">Delivered</option>
+                  <option value="Cancelled">Cancelled</option>
+                </select>
+              </div>
             </div>
 
-            {/* Payment Filter */}
-            <div style={{ minWidth: "150px" }}>
-              <select
-                value={paymentFilter}
-                onChange={(e) => handleFilterChange(setPaymentFilter, e.target.value)}
-                className="form-control"
-                style={{ padding: "8px 12px", fontSize: "0.9rem" }}
-              >
-                <option value="ALL">💳 All Payments</option>
-                <option value="Paid">🟢 Paid Only</option>
-                <option value="Pending">🟡 Pending Only</option>
-                <option value="Failed">🔴 Failed Only</option>
-              </select>
-            </div>
-
-            {/* Status Filter */}
-            <div style={{ minWidth: "150px" }}>
-              <select
-                value={statusFilter}
-                onChange={(e) => handleFilterChange(setStatusFilter, e.target.value)}
-                className="form-control"
-                style={{ padding: "8px 12px", fontSize: "0.9rem" }}
-              >
-                <option value="ALL">📦 All Statuses</option>
-                <option value="Pending">Pending</option>
-                <option value="Processing">Processing</option>
-                <option value="Shipped">Shipped</option>
-                <option value="Delivered">Delivered</option>
-                <option value="Cancelled">Cancelled</option>
-              </select>
-            </div>
-
-            {/* Reset Filters */}
             {(searchTerm || paymentFilter !== "ALL" || statusFilter !== "ALL") && (
               <button
                 type="button"
@@ -207,20 +258,42 @@ function AdminOrders() {
                   setStatusFilter("ALL");
                   setCurrentPage(1);
                 }}
-                className="btn btn-outline btn-sm"
-                style={{ padding: "8px 14px", height: "38px" }}
+                className="btn btn-secondary btn-sm"
               >
-                ✕ Clear
+                <RotateCcw size={14} />
+                <span>Reset Filters</span>
               </button>
             )}
           </div>
 
           {loading ? (
-            <p>Loading customer orders...</p>
-          ) : filteredOrders.length === 0 ? (
-            <div style={{ background: "white", padding: "40px", textAlign: "center", borderRadius: "8px", border: "1px solid #e2e8f0" }}>
-              <p style={{ color: "#64748b" }}>No orders match your search or filter criteria.</p>
+            <div className="table-container">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Order ID</th>
+                    <th>Customer</th>
+                    <th>Items</th>
+                    <th>Total</th>
+                    <th>Payment</th>
+                    <th>Fulfillment Status</th>
+                    <th>Date</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <TableRowSkeleton cols={7} />
+                  <TableRowSkeleton cols={7} />
+                  <TableRowSkeleton cols={7} />
+                  <TableRowSkeleton cols={7} />
+                </tbody>
+              </table>
             </div>
+          ) : filteredOrders.length === 0 ? (
+            <EmptyState
+              icon={ShoppingBag}
+              title="No customer orders found"
+              description="No orders match your current filter or search criteria."
+            />
           ) : (
             <>
               <div className="table-container">
@@ -228,89 +301,111 @@ function AdminOrders() {
                   <thead>
                     <tr>
                       <th>Order ID</th>
-                      <th>Customer</th>
-                      <th>Items</th>
-                      <th>Total</th>
+                      <th>Customer Details</th>
+                      <th>Items Purchased</th>
+                      <th>Amount</th>
                       <th>Payment</th>
-                      <th>Status</th>
+                      <th>Fulfillment</th>
                       <th>Date</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {paginatedOrders.map((order) => (
-                      <tr key={order._id}>
-                        <td style={{ fontSize: "0.85rem", color: "#6b7280" }}>#{order._id.substring(0, 8)}...</td>
-                        <td>
-                          <strong>{order.userName}</strong>
-                          <br />
-                          <span style={{ fontSize: "0.8rem", color: "#6b7280" }}>{order.userEmail}</span>
-                        </td>
-                        <td>
-                          {order.products.map((item, idx) => (
-                            <div key={idx} style={{ fontSize: "0.85rem" }}>
-                              {item.name} × {item.quantity}
+                    {paginatedOrders.map((order) => {
+                      const id = order._id || order.id || "";
+                      const isPaid = order.paymentStatus === "Paid";
+
+                      return (
+                        <tr key={id}>
+                          <td>
+                            <span style={{ fontFamily: "monospace", fontWeight: "700", color: "var(--color-primary)" }}>
+                              #{id.substring(0, 8)}
+                            </span>
+                          </td>
+                          <td>
+                            <div>
+                              <strong style={{ color: "var(--color-text-primary)", display: "block" }}>
+                                {order.userName || "Customer"}
+                              </strong>
+                              <span style={{ fontSize: "0.8rem", color: "var(--color-text-secondary)" }}>
+                                {order.userEmail}
+                              </span>
                             </div>
-                          ))}
-                        </td>
-                        <td style={{ fontWeight: "600", color: "#2563eb" }}>₹{order.totalAmount}</td>
-                        <td>
-                          <span
-                            className={
-                              order.paymentStatus === "Paid"
-                                ? "badge badge-success"
-                                : order.paymentStatus === "Failed"
-                                ? "badge badge-danger"
-                                : "badge badge-warning"
-                            }
-                          >
-                            {order.paymentStatus === "Paid" ? "Paid" : order.paymentStatus === "Failed" ? "Failed" : "Pending"}
-                          </span>
-                        </td>
-                        <td>
-                          <select
-                            value={order.status}
-                            disabled={order.paymentStatus !== "Paid"}
-                            onChange={(e) => handleStatusChange(order._id, e.target.value)}
-                            className="form-control"
-                            style={{
-                              padding: "4px 8px",
-                              fontSize: "0.85rem",
-                              width: "auto",
-                              cursor: order.paymentStatus === "Paid" ? "pointer" : "not-allowed",
-                              opacity: order.paymentStatus === "Paid" ? 1 : 0.6
-                            }}
-                            title={order.paymentStatus !== "Paid" ? "Status cannot be updated until payment is received." : ""}
-                          >
-                            <option value="Pending">Pending</option>
-                            <option value="Processing">Processing</option>
-                            <option value="Shipped">Shipped</option>
-                            <option value="Delivered">Delivered</option>
-                            <option value="Cancelled">Cancelled</option>
-                          </select>
-                        </td>
-                        <td style={{ fontSize: "0.85rem", color: "#6b7280" }}>
-                          {new Date(order.createdAt).toLocaleDateString()}
-                        </td>
-                      </tr>
-                    ))}
+                          </td>
+                          <td>
+                            <div style={{ display: "flex", flexDirection: "column", gap: "3px" }}>
+                              {(order.products || []).map((item, idx) => (
+                                <span key={idx} style={{ fontSize: "0.85rem", color: "var(--color-text-primary)" }}>
+                                  {item.name} <strong style={{ color: "var(--color-text-muted)" }}>× {item.quantity}</strong>
+                                </span>
+                              ))}
+                            </div>
+                          </td>
+                          <td>
+                            <strong style={{ fontSize: "1rem", color: "var(--color-text-primary)" }}>
+                              ₹{Number(order.totalAmount).toLocaleString("en-IN")}
+                            </strong>
+                          </td>
+                          <td>
+                            <Badge variant={isPaid ? "success" : order.paymentStatus === "Failed" ? "danger" : "warning"}>
+                              {order.paymentStatus || "Pending"}
+                            </Badge>
+                          </td>
+                          <td>
+                            <select
+                              value={order.status}
+                              disabled={!isPaid}
+                              onChange={(e) => handleStatusChange(id, e.target.value)}
+                              className="form-control"
+                              style={{
+                                padding: "4px 10px",
+                                height: "34px",
+                                fontSize: "0.85rem",
+                                fontWeight: "600",
+                                width: "auto",
+                                cursor: isPaid ? "pointer" : "not-allowed",
+                                opacity: isPaid ? 1 : 0.6
+                              }}
+                              title={!isPaid ? "Status cannot be updated until payment is received." : "Update order status"}
+                            >
+                              <option value="Pending">Pending</option>
+                              <option value="Processing">Processing</option>
+                              <option value="Shipped">Shipped</option>
+                              <option value="Delivered">Delivered</option>
+                              <option value="Cancelled">Cancelled</option>
+                            </select>
+                          </td>
+                          <td>
+                            <span style={{ fontSize: "0.82rem", color: "var(--color-text-muted)" }}>
+                              {order.createdAt ? new Date(order.createdAt).toLocaleDateString() : "-"}
+                            </span>
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
 
-              {/* Pagination Controls */}
               {totalPages > 1 && (
-                <div style={{ display: "flex", justifyContent: "center", alignItems: "center", gap: "10px", marginTop: "24px" }}>
+                <div
+                  style={{
+                    display: "flex",
+                    justifyContent: "center",
+                    alignItems: "center",
+                    gap: "12px",
+                    marginTop: "24px"
+                  }}
+                >
                   <button
                     type="button"
                     onClick={() => setCurrentPage((p) => Math.max(p - 1, 1))}
                     disabled={currentPage === 1}
-                    className="btn btn-outline btn-sm"
-                    style={{ padding: "6px 14px" }}
+                    className="btn btn-secondary btn-sm"
                   >
                     ← Previous
                   </button>
 
-                  <span style={{ fontSize: "0.9rem", color: "#475569" }}>
+                  <span style={{ fontSize: "0.88rem", color: "var(--color-text-secondary)" }}>
                     Page <strong>{currentPage}</strong> of <strong>{totalPages}</strong>
                   </span>
 
@@ -318,8 +413,7 @@ function AdminOrders() {
                     type="button"
                     onClick={() => setCurrentPage((p) => Math.min(p + 1, totalPages))}
                     disabled={currentPage === totalPages}
-                    className="btn btn-outline btn-sm"
-                    style={{ padding: "6px 14px" }}
+                    className="btn btn-secondary btn-sm"
                   >
                     Next →
                   </button>

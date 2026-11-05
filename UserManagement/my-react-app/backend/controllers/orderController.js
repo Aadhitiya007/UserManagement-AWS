@@ -3,6 +3,7 @@ const ProductRepository = require("../repositories/productRepository");
 const UserRepository = require("../repositories/userRepository");
 const CouponRepository = require("../repositories/couponRepository");
 const { logAuditEvent } = require("../utils/logger");
+const { generateInvoiceHtml } = require("../utils/invoiceGenerator");
 
 let activeOrderRepo = new OrderRepository();
 let activeProductRepo = new ProductRepository();
@@ -242,135 +243,7 @@ exports.getOrderInvoice = async (req, res) => {
       return res.status(403).json({ message: "Unauthorized to access this order invoice" });
     }
 
-    const items = order.products || [];
-    const invoiceNumber = `INV-${order.orderId.slice(-8).toUpperCase()}`;
-    const invoiceDate = new Date(order.createdAt).toLocaleDateString("en-IN", {
-      year: "numeric",
-      month: "short",
-      day: "numeric"
-    });
-
-    const subtotal = order.originalSubtotal || order.totalAmount || 0;
-    const prodDiscount = order.productDiscountTotal || 0;
-    const couponDisc = order.couponDiscount || 0;
-    const delivery = order.deliveryFee || 0;
-    const total = order.totalAmount || 0;
-
-    const html = `<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <title>Tax Invoice - ${invoiceNumber}</title>
-  <style>
-    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; color: #1e293b; margin: 0; padding: 40px; background: #f8fafc; }
-    .invoice-card { max-width: 800px; margin: 0 auto; background: #fff; padding: 40px; border-radius: 8px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1); border: 1px solid #e2e8f0; }
-    .header { display: flex; justify-content: space-between; border-bottom: 2px solid #2563eb; padding-bottom: 20px; margin-bottom: 30px; }
-    .company-title { font-size: 24px; font-weight: 800; color: #2563eb; margin: 0; }
-    .invoice-title { font-size: 22px; font-weight: 700; color: #0f172a; margin: 0; text-align: right; }
-    .meta-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 30px; font-size: 14px; }
-    .meta-box h4 { margin: 0 0 8px; color: #64748b; font-size: 12px; text-transform: uppercase; }
-    table { width: 100%; border-collapse: collapse; margin-bottom: 30px; font-size: 14px; }
-    th { background: #f1f5f9; padding: 12px; text-align: left; font-weight: 600; border-bottom: 1px solid #cbd5e1; }
-    td { padding: 12px; border-bottom: 1px solid #e2e8f0; }
-    .totals { width: 320px; margin-left: auto; font-size: 14px; }
-    .totals-row { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid #f1f5f9; }
-    .totals-grand { display: flex; justify-content: space-between; padding: 12px 0; font-size: 18px; font-weight: 800; color: #2563eb; border-top: 2px solid #0f172a; margin-top: 8px; }
-    .footer { text-align: center; margin-top: 40px; font-size: 12px; color: #94a3b8; border-top: 1px solid #e2e8f0; padding-top: 20px; }
-    @media print {
-      body { background: #fff; padding: 0; }
-      .invoice-card { box-shadow: none; border: none; padding: 0; }
-      .no-print { display: none; }
-    }
-  </style>
-</head>
-<body>
-  <div class="invoice-card">
-    <div class="no-print" style="margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center;">
-      <a href="javascript:history.back()" style="color: #2563eb; text-decoration: none; font-size: 14px;">← Back to Store</a>
-      <button onclick="window.print()" style="background: #2563eb; color: #fff; border: none; padding: 8px 16px; border-radius: 6px; cursor: pointer; font-weight: 600;">🖨️ Print / Save as PDF</button>
-    </div>
-
-    <div class="header">
-      <div>
-        <h1 class="company-title">SHOPIEE</h1>
-        <p style="margin: 4px 0 0; color: #64748b; font-size: 13px;">Official Tax Invoice & Delivery Receipt</p>
-      </div>
-      <div>
-        <div class="invoice-title">TAX INVOICE</div>
-        <p style="margin: 4px 0 0; color: #64748b; font-size: 13px; text-align: right;">${invoiceNumber}</p>
-      </div>
-    </div>
-
-    <div class="meta-grid">
-      <div class="meta-box">
-        <h4>Billed & Shipped To:</h4>
-        <strong>${order.userName || "Valued Customer"}</strong><br>
-        Email: ${order.userEmail || "customer@example.com"}<br>
-        Customer ID: ${order.userId}
-      </div>
-      <div class="meta-box" style="text-align: right;">
-        <h4>Order Information:</h4>
-        <strong>Order Date:</strong> ${invoiceDate}<br>
-        <strong>Order Status:</strong> ${order.status}<br>
-        <strong>Payment Status:</strong> ${order.paymentStatus} (${order.paymentMethod || "Card"})
-      </div>
-    </div>
-
-    <table>
-      <thead>
-        <tr>
-          <th>#</th>
-          <th>Item Description</th>
-          <th style="text-align: right;">Unit Price</th>
-          <th style="text-align: center;">Qty</th>
-          <th style="text-align: right;">Amount</th>
-        </tr>
-      </thead>
-      <tbody>
-        ${items.map((it, idx) => `
-          <tr>
-            <td>${idx + 1}</td>
-            <td><strong>${it.name}</strong></td>
-            <td style="text-align: right;">₹${it.price}</td>
-            <td style="text-align: center;">${it.quantity}</td>
-            <td style="text-align: right;">₹${it.price * it.quantity}</td>
-          </tr>
-        `).join("")}
-      </tbody>
-    </table>
-
-    <div class="totals">
-      <div class="totals-row">
-        <span>Items Subtotal:</span>
-        <span>₹${subtotal}</span>
-      </div>
-      ${prodDiscount > 0 ? `
-      <div class="totals-row" style="color: #16a34a;">
-        <span>Product Savings:</span>
-        <span>- ₹${prodDiscount}</span>
-      </div>` : ""}
-      ${couponDisc > 0 ? `
-      <div class="totals-row" style="color: #16a34a;">
-        <span>Coupon Discount (${order.couponCode || 'PROMO'}):</span>
-        <span>- ₹${couponDisc}</span>
-      </div>` : ""}
-      <div class="totals-row">
-        <span>Estimated Delivery:</span>
-        <span>${delivery === 0 ? "FREE" : "₹" + delivery}</span>
-      </div>
-      <div class="totals-grand">
-        <span>Total Paid:</span>
-        <span>₹${total}</span>
-      </div>
-    </div>
-
-    <div class="footer">
-      <p>Thank you for shopping with Shopiee! This is an authentic computer-generated tax invoice.</p>
-      <p>Order ID: ${order.orderId} | Powered by AWS Lambda & DynamoDB</p>
-    </div>
-  </div>
-</body>
-</html>`;
+    const html = generateInvoiceHtml(order, { isEmail: false });
 
     res.setHeader("Content-Type", "text/html; charset=utf-8");
     return res.status(200).send(html);

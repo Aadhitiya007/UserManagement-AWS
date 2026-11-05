@@ -2,7 +2,7 @@ const express = require("express");
 const router = express.Router();
 const rateLimit = require("express-rate-limit");
 const { verifyToken } = require("../middleware/authMiddleware");
-const { requireAdmin } = require("../middleware/roleMiddleware");
+const { requireStaff } = require("../middleware/roleMiddleware");
 const {
   createOrder,
   getUserOrders,
@@ -22,9 +22,9 @@ const orderLimiter = rateLimit({
 
 router.post("/", orderLimiter, verifyToken, createOrder);
 router.get("/my-orders", verifyToken, getUserOrders);
-router.get("/", verifyToken, requireAdmin, getAllOrders);
-router.get("/stats", verifyToken, requireAdmin, getAdminStats);
-router.put("/:id/status", verifyToken, requireAdmin, updateOrderStatus);
+router.get("/", verifyToken, requireStaff, getAllOrders);
+router.get("/stats", verifyToken, requireStaff, getAdminStats);
+router.put("/:id/status", verifyToken, requireStaff, updateOrderStatus);
 router.get("/:id/invoice", verifyToken, getOrderInvoice);
 
 module.exports = router;

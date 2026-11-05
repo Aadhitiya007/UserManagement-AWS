@@ -1,4 +1,5 @@
 const UserRepository = require("../repositories/userRepository");
+const bcrypt = require("bcryptjs");
 
 let activeUserRepo = new UserRepository();
 
@@ -51,7 +52,48 @@ exports.updateUser = async (req, res) => {
 };
 
 /**
- * 3. Delete User
+ * 4. Create User / Staff (Admin)
+ * POST /api/users
+ */
+exports.createUser = async (req, res) => {
+  try {
+    const { name, email, password, role = "manager", age, country, phone } = req.body;
+    if (!name || !email || !password) {
+      return res.status(400).json({ message: "Name, email, and password are required." });
+    }
+
+    const cleanEmail = email.trim().toLowerCase();
+    const existing = await activeUserRepo.findByEmail(cleanEmail);
+    if (existing) {
+      return res.status(400).json({ message: "An account with this email already exists." });
+    }
+
+    const hashedPassword = await bcrypt.hash(password, 10);
+    const assignedRole = ["admin", "manager", "user"].includes(role) ? role : "manager";
+
+    const newUser = await activeUserRepo.create({
+      name: name.trim(),
+      email: cleanEmail,
+      password: hashedPassword,
+      role: assignedRole,
+      age: age ? Number(age) : undefined,
+      country: country ? country.trim() : "",
+      phone: phone ? phone.trim() : "",
+      isEmailVerified: true
+    });
+
+    const sanitized = { ...newUser };
+    delete sanitized.password;
+
+    return res.status(201).json({ message: "Staff user created successfully", user: sanitized });
+  } catch (error) {
+    const statusCode = error.statusCode || error.status || 500;
+    return res.status(statusCode).json({ message: error.message });
+  }
+};
+
+/**
+ * 5. Delete User
  * DELETE /api/users/:id
  */
 exports.deleteUser = async (req, res) => {

@@ -1,8 +1,10 @@
 import { useState, useEffect } from "react";
-import { useParams, useNavigate } from "react-router-dom";
+import { useParams, useNavigate, Link } from "react-router-dom";
 import Navbar from "../../components/Navbar";
 import AdminSidebar from "../../components/AdminSidebar";
+import PageHeader from "../../components/ui/PageHeader";
 import { API_URL } from "../../config/api";
+import { ArrowLeft, Upload, AlertCircle } from "lucide-react";
 
 function EditProduct() {
   const { id } = useParams();
@@ -90,11 +92,27 @@ function EditProduct() {
     }
   }
 
-  if (loading) return <><Navbar /><div className="admin-layout"><AdminSidebar /><main className="admin-content"><p>Loading product details...</p></main></div></>;
+  if (loading) {
+    return (
+      <>
+        <Navbar />
+        <div className="admin-layout">
+          <AdminSidebar />
+          <main className="admin-content">
+            <p style={{ color: "var(--color-text-secondary)" }}>Loading product details...</p>
+          </main>
+        </div>
+      </>
+    );
+  }
 
-  const displayImage = imagePreview || (currentImage
-    ? (currentImage.startsWith("http") || currentImage.startsWith("data:") ? currentImage : `${API_URL}/${currentImage.replace(/^\//, "")}`)
-    : "");
+  const displayImage =
+    imagePreview ||
+    (currentImage
+      ? currentImage.startsWith("http") || currentImage.startsWith("data:")
+        ? currentImage
+        : `${API_URL}/${currentImage.replace(/^\//, "")}`
+      : "");
 
   return (
     <>
@@ -102,18 +120,39 @@ function EditProduct() {
       <div className="admin-layout">
         <AdminSidebar />
         <main className="admin-content">
-          <h2 style={{ marginBottom: "20px" }}>Edit Product</h2>
+          <PageHeader
+            title="Edit Product"
+            subtitle={`Updating specifications and stock for "${name}".`}
+            actions={
+              <Link to="/admin/products" className="btn btn-secondary btn-sm">
+                <ArrowLeft size={14} />
+                <span>Back to Catalog</span>
+              </Link>
+            }
+          />
 
-          <div className="form-card" style={{ margin: "0" }}>
-            {error && (
-              <div style={{ padding: "12px", background: "#fee2e2", color: "#991b1b", borderRadius: "6px", marginBottom: "20px" }}>
-                {error}
-              </div>
-            )}
+          {error && (
+            <div
+              style={{
+                padding: "14px",
+                backgroundColor: "var(--color-error-light)",
+                color: "var(--color-error)",
+                borderRadius: "var(--radius-md)",
+                marginBottom: "20px",
+                display: "flex",
+                alignItems: "center",
+                gap: "8px"
+              }}
+            >
+              <AlertCircle size={16} />
+              <span>{error}</span>
+            </div>
+          )}
 
-            <form onSubmit={handleSubmit}>
+          <div style={{ maxWidth: "760px" }}>
+            <form onSubmit={handleSubmit} className="card" style={{ display: "flex", flexDirection: "column", gap: "20px" }}>
               <div className="form-group">
-                <label>Product Name *</label>
+                <label className="form-label">Product Name *</label>
                 <input
                   type="text"
                   className="form-control"
@@ -124,18 +163,18 @@ function EditProduct() {
               </div>
 
               <div className="form-group">
-                <label>Description</label>
+                <label className="form-label">Description</label>
                 <textarea
                   className="form-control"
-                  rows="3"
+                  rows="4"
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
                 />
               </div>
 
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "15px" }}>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "16px" }}>
                 <div className="form-group">
-                  <label>Price (₹) *</label>
+                  <label className="form-label">Price (₹ INR) *</label>
                   <input
                     type="number"
                     step="0.01"
@@ -148,16 +187,14 @@ function EditProduct() {
                     }}
                     onChange={(e) => {
                       const val = e.target.value;
-                      if (val === "" || parseFloat(val) >= 0) {
-                        setPrice(val);
-                      }
+                      if (val === "" || parseFloat(val) >= 0) setPrice(val);
                     }}
                     required
                   />
                 </div>
 
                 <div className="form-group">
-                  <label>Stock Quantity *</label>
+                  <label className="form-label">Warehouse Stock Quantity *</label>
                   <input
                     type="number"
                     min="0"
@@ -169,9 +206,7 @@ function EditProduct() {
                     }}
                     onChange={(e) => {
                       const val = e.target.value;
-                      if (val === "" || parseInt(val, 10) >= 0) {
-                        setStock(val);
-                      }
+                      if (val === "" || parseInt(val, 10) >= 0) setStock(val);
                     }}
                     required
                   />
@@ -179,8 +214,12 @@ function EditProduct() {
               </div>
 
               <div className="form-group">
-                <label>Category *</label>
-                <select className="form-control" value={category} onChange={(e) => setCategory(e.target.value)}>
+                <label className="form-label">Category *</label>
+                <select
+                  className="form-control"
+                  value={category}
+                  onChange={(e) => setCategory(e.target.value)}
+                >
                   <option value="Electronics">Electronics</option>
                   <option value="Clothing">Clothing</option>
                   <option value="Books">Books</option>
@@ -190,24 +229,70 @@ function EditProduct() {
               </div>
 
               <div className="form-group">
-                <label>Product Image</label>
-                <input
-                  type="file"
-                  accept="image/*"
-                  onChange={handleImageChange}
-                  className="form-control"
-                />
+                <label className="form-label">Product Image</label>
                 {displayImage && (
-                  <div>
-                    <p style={{ fontSize: "0.85rem", color: "#6b7280", marginTop: "8px" }}>Current/Preview Image:</p>
-                    <img src={displayImage} alt="Product" className="img-preview" />
+                  <div style={{ marginBottom: "12px" }}>
+                    <span style={{ fontSize: "0.8rem", color: "var(--color-text-secondary)", display: "block", marginBottom: "6px" }}>
+                      Active Image:
+                    </span>
+                    <div
+                      style={{
+                        width: "110px",
+                        height: "110px",
+                        borderRadius: "var(--radius-sm)",
+                        overflow: "hidden",
+                        border: "1px solid var(--color-border)"
+                      }}
+                    >
+                      <img src={displayImage} alt="Current" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                    </div>
                   </div>
                 )}
+
+                <div
+                  style={{
+                    border: "2px dashed var(--color-border)",
+                    borderRadius: "var(--radius-md)",
+                    padding: "20px",
+                    textAlign: "center",
+                    backgroundColor: "var(--color-surface-subtle)",
+                    cursor: "pointer",
+                    position: "relative"
+                  }}
+                >
+                  <Upload size={24} color="var(--color-text-muted)" style={{ margin: "0 auto 6px" }} />
+                  <p style={{ fontSize: "0.85rem", fontWeight: "600", color: "var(--color-text-primary)", margin: "0 0 2px" }}>
+                    Upload replacement image (Amazon S3)
+                  </p>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    onChange={handleImageChange}
+                    style={{
+                      position: "absolute",
+                      inset: 0,
+                      opacity: 0,
+                      cursor: "pointer",
+                      width: "100%",
+                      height: "100%"
+                    }}
+                  />
+                </div>
               </div>
 
-              <button type="submit" className="btn btn-primary" style={{ width: "100%", marginTop: "10px" }} disabled={submitting}>
-                {submitting ? "Updating Product..." : "Save Changes"}
-              </button>
+              <div style={{ display: "flex", gap: "12px", marginTop: "10px" }}>
+                <button
+                  type="submit"
+                  className="btn btn-primary"
+                  style={{ flex: 1 }}
+                  disabled={submitting}
+                >
+                  {submitting ? "Saving Changes..." : "Save Product Changes"}
+                </button>
+                <Link to="/admin/products" className="btn btn-secondary" style={{ flex: 1 }}>
+                  Cancel
+                </Link>
+              </div>
             </form>
           </div>
         </main>

@@ -27,6 +27,7 @@ class UserRepository {
       age: item.age,
       country: item.country,
       phone: item.phone,
+      isEmailVerified: item.isEmailVerified === true,
       createdAt: item.createdAt,
       updatedAt: item.updatedAt
     };
@@ -100,6 +101,7 @@ class UserRepository {
       age: age !== undefined && age !== null ? Number(age) : null,
       country: country || "",
       phone: phone || "",
+      isEmailVerified: false,
       createdAt: now,
       updatedAt: now
     };
@@ -461,6 +463,132 @@ class UserRepository {
     );
 
     return { success: true, userId: tokenItem.targetUserId };
+  }
+
+
+  /**
+   * Create an email verification token (24-hour expiration) in DynamoDB
+   */
+  async createEmailVerificationToken(email, hashedToken, expiresAt) {
+    const user = await this.findByEmail(email);
+    if (!user) return null;
+
+    const verifyItem = {
+      userId: `VERIFY#${hashedToken}`,
+      itemType: "EMAIL_VERIFICATION_TOKEN",
+      targetUserId: user.id,
+      email: user.email,
+      expiresAt: Number(expiresAt),
+      createdAt: new Date().toISOString()
+    };
+
+    const updateProfile = {
+      Update: {
+        TableName: this.tableName,
+        Key: { userId: user.id },
+        UpdateExpression: "SET emailVerificationToken = :token, emailVerificationExpire = :exp, updatedAt = :now",
+        ExpressionAttributeValues: {
+          ":token": hashedToken,
+          ":exp": Number(expiresAt),
+          ":now": new Date().toISOString()
+        }
+      }
+    };
+
+    const putToken = {
+      Put: {
+        TableName: this.tableName,
+        Item: verifyItem
+      }
+    };
+
+    await this.docClient.send(
+      new TransactWriteCommand({
+        TransactItems: [updateProfile, putToken]
+      })
+    );
+
+    return { user, expiresAt };
+  }
+
+  /**
+   * Atomically consume verification token and mark user as verified in DynamoDB
+   */
+  async consumeEmailVerificationToken(hashedToken) {
+    const tokenResult = await this.docClient.send(
+      new GetCommand({
+        TableName: this.tableName,
+        Key: { userId: `VERIFY#${hashedToken}` }
+      })
+    );
+
+    const tokenItem = tokenResult.Item;
+    if (!tokenItem || tokenItem.itemType !== "EMAIL_VERIFICATION_TOKEN") {
+      const err = new Error("Invalid or expired verification token.");
+      err.status = 400;
+      throw err;
+    }
+
+    if (Date.now() > Number(tokenItem.expiresAt)) {
+      try {
+        await this.docClient.send(
+          new DeleteCommand({
+            TableName: this.tableName,
+            Key: { userId: `VERIFY#${hashedToken}` }
+          })
+        );
+      } catch (_) {}
+      const err = new Error("Verification token has expired. Please request a new one.");
+      err.status = 400;
+      throw err;
+    }
+
+    const deleteToken = {
+      Delete: {
+        TableName: this.tableName,
+        Key: { userId: `VERIFY#${hashedToken}` }
+      }
+    };
+
+    const updateProfile = {
+      Update: {
+        TableName: this.tableName,
+        Key: { userId: tokenItem.targetUserId },
+        UpdateExpression: "SET isEmailVerified = :verified, emailVerificationToken = :null, emailVerificationExpire = :null, updatedAt = :now",
+        ExpressionAttributeValues: {
+          ":verified": true,
+          ":null": null,
+          ":now": new Date().toISOString()
+        }
+      }
+    };
+
+    await this.docClient.send(
+      new TransactWriteCommand({
+        TransactItems: [deleteToken, updateProfile]
+      })
+    );
+
+    return { success: true, userId: tokenItem.targetUserId, email: tokenItem.email };
+  }
+
+  /**
+   * Set new password directly (e.g. for temporary password generation)
+   */
+  async updateUserPassword(userId, newPasswordHash) {
+    await this.docClient.send(
+      new UpdateCommand({
+        TableName: this.tableName,
+        Key: { userId },
+        UpdateExpression: "SET password = :pwd, updatedAt = :now ADD tokenVersion :one",
+        ExpressionAttributeValues: {
+          ":pwd": newPasswordHash,
+          ":now": new Date().toISOString(),
+          ":one": 1
+        }
+      })
+    );
+    return { success: true };
   }
 
 }
