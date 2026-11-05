@@ -281,8 +281,8 @@ function Cart() {
                 </div>
               </div>
 
-              {/* Items List */}
-              <div className="table-container">
+              {/* Desktop Items Table */}
+              <div className="table-container cart-table-desktop">
                 <table>
                   <thead>
                     <tr>
@@ -378,6 +378,107 @@ function Cart() {
                     })}
                   </tbody>
                 </table>
+              </div>
+
+              {/* Mobile Item Cards */}
+              <div className="cart-cards-mobile">
+                {cart.map((item) => {
+                  const id = item._id || item.id;
+                  const imageUrl = item.imageUrl || item.image || "https://placehold.co/100x100?text=No+Image";
+                  const isItemOutOfStock = item.stock !== undefined && item.stock <= 0;
+
+                  return (
+                    <div
+                      key={id}
+                      style={{
+                        padding: "14px",
+                        backgroundColor: "var(--color-surface)",
+                        border: "1px solid var(--color-border)",
+                        borderRadius: "var(--radius-md)",
+                        display: "flex",
+                        gap: "12px",
+                        alignItems: "center",
+                        opacity: isItemOutOfStock ? 0.6 : 1
+                      }}
+                    >
+                      <img
+                        src={imageUrl}
+                        alt={item.name}
+                        onError={(e) => {
+                          e.currentTarget.onerror = null;
+                          e.currentTarget.src = "https://placehold.co/60x60?text=No+Img";
+                        }}
+                        style={{
+                          width: "60px",
+                          height: "60px",
+                          objectFit: "cover",
+                          borderRadius: "var(--radius-sm)",
+                          border: "1px solid var(--color-border)",
+                          flexShrink: 0
+                        }}
+                      />
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <strong
+                          style={{
+                            color: "var(--color-text-primary)",
+                            fontSize: "0.88rem",
+                            display: "block",
+                            overflow: "hidden",
+                            textOverflow: "ellipsis",
+                            whiteSpace: "nowrap"
+                          }}
+                        >
+                          {item.name}
+                        </strong>
+                        <div style={{ display: "flex", alignItems: "baseline", gap: "8px", margin: "4px 0 8px" }}>
+                          <span style={{ color: "var(--color-text-primary)", fontWeight: "700", fontSize: "0.95rem" }}>
+                            ₹{item.price}
+                          </span>
+                          <span style={{ fontSize: "0.78rem", color: "var(--color-text-secondary)" }}>
+                            Total: ₹{item.price * item.quantity}
+                          </span>
+                        </div>
+
+                        {/* Mobile Stepper + Remove */}
+                        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                            <button
+                              type="button"
+                              onClick={() => updateQuantity(id, item.quantity - 1)}
+                              className="btn btn-secondary btn-sm"
+                              disabled={isItemOutOfStock}
+                              style={{ width: "32px", height: "32px", padding: 0 }}
+                            >
+                              -
+                            </button>
+                            <span style={{ fontWeight: "700", minWidth: "24px", textAlign: "center", fontSize: "0.9rem" }}>
+                              {item.quantity}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => updateQuantity(id, item.quantity + 1)}
+                              className="btn btn-secondary btn-sm"
+                              disabled={isItemOutOfStock || (item.stock && item.quantity >= item.stock)}
+                              style={{ width: "32px", height: "32px", padding: 0 }}
+                            >
+                              +
+                            </button>
+                          </div>
+
+                          <button
+                            type="button"
+                            onClick={() => removeFromCart(id)}
+                            className="btn btn-ghost btn-sm"
+                            title="Remove Item"
+                            style={{ padding: "6px 10px", color: "var(--color-error)" }}
+                          >
+                            <Trash2 size={16} />
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
             </div>
 

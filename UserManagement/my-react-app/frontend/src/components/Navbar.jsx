@@ -25,7 +25,9 @@ import {
   Globe,
   Edit2,
   CheckCircle2,
-  AlertCircle
+  AlertCircle,
+  Menu,
+  X
 } from "lucide-react";
 
 function Navbar() {
@@ -33,6 +35,7 @@ function Navbar() {
   const { cart, switchUser } = useCart();
   const { wishlist } = useWishlist();
   const [showProfileCard, setShowProfileCard] = useState(false);
+  const [isMobileDrawerOpen, setIsMobileDrawerOpen] = useState(false);
   const closeTimerRef = useRef(null);
   const profileContainerRef = useRef(null);
 
@@ -239,7 +242,7 @@ function Navbar() {
           </span>
         </Link>
 
-        <nav className="navbar-links">
+        <nav className="navbar-links desktop-only">
           {/* Changed from 'Discover' to 'Store' */}
           <Link to="/products" className="nav-link-item">
             <Store size={16} />
@@ -592,7 +595,333 @@ function Navbar() {
             </div>
           )}
         </nav>
+
+        {/* Mobile Header Controls */}
+        <div className="mobile-only" style={{ alignItems: "center", gap: "8px" }}>
+          <ThemeToggle />
+
+          {!isStaff && (
+            <Link
+              to="/cart"
+              style={{
+                position: "relative",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                width: "36px",
+                height: "36px",
+                borderRadius: "var(--radius-pill)",
+                backgroundColor: "var(--color-surface-subtle)",
+                color: "var(--color-text-primary)",
+                border: "1px solid var(--color-border)",
+                textDecoration: "none"
+              }}
+              aria-label="Shopping Bag"
+            >
+              <ShoppingBag size={18} />
+              {totalItems > 0 && (
+                <span
+                  style={{
+                    position: "absolute",
+                    top: "-4px",
+                    right: "-4px",
+                    backgroundColor: "var(--color-coral)",
+                    color: "#FFFFFF",
+                    fontSize: "0.68rem",
+                    fontWeight: "800",
+                    width: "18px",
+                    height: "18px",
+                    borderRadius: "50%",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center"
+                  }}
+                >
+                  {totalItems}
+                </span>
+              )}
+            </Link>
+          )}
+
+          <button
+            type="button"
+            onClick={() => setIsMobileDrawerOpen(true)}
+            aria-label="Open mobile menu"
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              width: "36px",
+              height: "36px",
+              borderRadius: "var(--radius-pill)",
+              backgroundColor: "var(--color-surface-subtle)",
+              color: "var(--color-text-primary)",
+              border: "1px solid var(--color-border)",
+              cursor: "pointer"
+            }}
+          >
+            <Menu size={20} />
+          </button>
+        </div>
       </header>
+
+      {/* Off-Canvas Mobile Navigation Drawer */}
+      {isMobileDrawerOpen && (
+        <>
+          <div
+            className="mobile-drawer-backdrop"
+            onClick={() => setIsMobileDrawerOpen(false)}
+          />
+          <div className="mobile-drawer">
+            <div className="mobile-drawer-header">
+              <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                <img
+                  src={logoIcon}
+                  alt="Shopiee Logo"
+                  style={{ height: "26px", width: "auto" }}
+                />
+                <span
+                  style={{
+                    fontSize: "1.25rem",
+                    fontWeight: "800",
+                    letterSpacing: "-0.03em"
+                  }}
+                >
+                  <span style={{ color: "var(--color-logo-shopi, #172033)" }}>shopi</span>
+                  <span style={{ color: "var(--color-coral, #FF7043)" }}>ee</span>
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsMobileDrawerOpen(false)}
+                className="modal-close-btn"
+                aria-label="Close menu"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            <div className="mobile-drawer-body">
+              {/* User Profile Card on Mobile */}
+              {token && currentUser ? (
+                <div
+                  style={{
+                    padding: "14px",
+                    backgroundColor: "var(--color-surface-subtle)",
+                    borderRadius: "var(--radius-md)",
+                    border: "1px solid var(--color-border)"
+                  }}
+                >
+                  <div style={{ display: "flex", alignItems: "center", gap: "12px", marginBottom: "12px" }}>
+                    <div
+                      style={{
+                        width: "40px",
+                        height: "40px",
+                        borderRadius: "50%",
+                        backgroundColor: isStaff ? (isSuperAdmin ? "var(--color-primary)" : "#0D9488") : "var(--color-navy)",
+                        color: "#FFFFFF",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        fontWeight: "700",
+                        fontSize: "1rem"
+                      }}
+                    >
+                      {userInitial}
+                    </div>
+                    <div style={{ overflow: "hidden", flex: 1 }}>
+                      <div
+                        style={{
+                          fontWeight: "700",
+                          fontSize: "0.92rem",
+                          color: "var(--color-text-primary)",
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                          whiteSpace: "nowrap"
+                        }}
+                      >
+                        {currentUser.name || "Customer"}
+                      </div>
+                      <div
+                        style={{
+                          fontSize: "0.78rem",
+                          color: "var(--color-text-secondary)",
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                          whiteSpace: "nowrap"
+                        }}
+                      >
+                        {currentUser.email}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                    <span
+                      style={{
+                        padding: "2px 8px",
+                        borderRadius: "var(--radius-pill)",
+                        fontSize: "0.72rem",
+                        fontWeight: "700",
+                        backgroundColor: isSuperAdmin
+                          ? "rgba(49, 94, 251, 0.12)"
+                          : isManager
+                          ? "rgba(13, 148, 136, 0.12)"
+                          : "rgba(22, 163, 106, 0.12)",
+                        color: isSuperAdmin
+                          ? "var(--color-primary)"
+                          : isManager
+                          ? "#0D9488"
+                          : "var(--color-success)"
+                      }}
+                    >
+                      {isSuperAdmin ? "Super Admin" : isManager ? "Store Manager" : "Customer"}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsMobileDrawerOpen(false);
+                        openEditModal();
+                      }}
+                      className="btn btn-secondary btn-sm"
+                      style={{ height: "28px", padding: "0 10px", fontSize: "0.75rem", gap: "4px" }}
+                    >
+                      <Edit2 size={12} />
+                      <span>Edit</span>
+                    </button>
+                  </div>
+                </div>
+              ) : null}
+
+              {/* Navigation Links */}
+              <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+                <Link
+                  to="/products"
+                  className="mobile-nav-link"
+                  onClick={() => setIsMobileDrawerOpen(false)}
+                >
+                  <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                    <Store size={18} />
+                    <span>Store</span>
+                  </div>
+                </Link>
+
+                {!isStaff && (
+                  <>
+                    <Link
+                      to="/wishlist"
+                      className="mobile-nav-link"
+                      onClick={() => setIsMobileDrawerOpen(false)}
+                    >
+                      <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                        <Heart size={18} />
+                        <span>Wishlist</span>
+                      </div>
+                      {wishlist.length > 0 && (
+                        <span className="nav-badge wishlist-badge">{wishlist.length}</span>
+                      )}
+                    </Link>
+
+                    <Link
+                      to="/cart"
+                      className="mobile-nav-link"
+                      onClick={() => setIsMobileDrawerOpen(false)}
+                    >
+                      <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                        <ShoppingBag size={18} />
+                        <span>Shopping Bag</span>
+                      </div>
+                      {totalItems > 0 && <span className="nav-badge">{totalItems}</span>}
+                    </Link>
+
+                    {token && (
+                      <Link
+                        to="/orders"
+                        className="mobile-nav-link"
+                        onClick={() => setIsMobileDrawerOpen(false)}
+                      >
+                        <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                          <Package size={18} />
+                          <span>My Orders</span>
+                        </div>
+                      </Link>
+                    )}
+                  </>
+                )}
+
+                {isStaff && (
+                  <>
+                    <Link
+                      to="/admin/orders"
+                      className="mobile-nav-link"
+                      onClick={() => setIsMobileDrawerOpen(false)}
+                    >
+                      <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                        <Package size={18} />
+                        <span>Store Orders Pipeline</span>
+                      </div>
+                    </Link>
+                    <Link
+                      to="/admin/dashboard"
+                      className="mobile-nav-link"
+                      onClick={() => setIsMobileDrawerOpen(false)}
+                      style={{
+                        backgroundColor: isSuperAdmin ? "var(--color-primary-light)" : "rgba(13, 148, 136, 0.12)",
+                        color: isSuperAdmin ? "var(--color-primary)" : "#0D9488",
+                        borderColor: isSuperAdmin ? "var(--color-primary)" : "#0D9488"
+                      }}
+                    >
+                      <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                        <Shield size={18} />
+                        <span>{isSuperAdmin ? "Admin Portal" : "Manager Portal"}</span>
+                      </div>
+                    </Link>
+                  </>
+                )}
+              </div>
+
+              {/* Drawer Footer Actions */}
+              <div style={{ marginTop: "auto", paddingTop: "16px", borderTop: "1px solid var(--color-border)" }}>
+                {token ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsMobileDrawerOpen(false);
+                      handleLogout();
+                    }}
+                    className="btn btn-danger btn-sm"
+                    style={{ width: "100%", height: "40px", fontSize: "0.9rem", gap: "8px" }}
+                  >
+                    <LogOut size={16} />
+                    <span>Sign Out</span>
+                  </button>
+                ) : (
+                  <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+                    <Link
+                      to="/login"
+                      className="btn btn-secondary btn-sm"
+                      onClick={() => setIsMobileDrawerOpen(false)}
+                      style={{ height: "40px", fontSize: "0.9rem", justifyContent: "center", gap: "8px" }}
+                    >
+                      <LogIn size={16} />
+                      <span>Login to Account</span>
+                    </Link>
+                    <Link
+                      to="/signup"
+                      className="btn btn-primary btn-sm"
+                      onClick={() => setIsMobileDrawerOpen(false)}
+                      style={{ height: "40px", fontSize: "0.9rem", justifyContent: "center", gap: "8px" }}
+                    >
+                      <UserPlus size={16} />
+                      <span>Create Account</span>
+                    </Link>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        </>
+      )}
 
       {/* Edit Profile Modal */}
       <Modal
