@@ -205,7 +205,7 @@ function ProductDetail() {
   return (
     <>
       <Navbar />
-      <div className="container" style={{ paddingTop: "24px", paddingBottom: "60px" }}>
+      <div className="container" style={{ paddingTop: "24px", paddingBottom: "100px" }}>
         <Link
           to="/products"
           className="btn btn-secondary btn-sm"
@@ -216,18 +216,11 @@ function ProductDetail() {
         </Link>
 
         {/* 2-Column Product Detail Layout */}
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "repeat(auto-fit, minmax(360px, 1fr))",
-            gap: "40px",
-            marginBottom: "48px"
-          }}
-        >
+        <div className="product-detail-grid">
           {/* Left: Product Media & Specs */}
           <div>
             <div
-              className="card"
+              className="card product-detail-media"
               style={{
                 padding: "0",
                 overflow: "hidden",
@@ -611,6 +604,45 @@ function ProductDetail() {
               ))}
             </div>
           )}
+        </div>
+      </div>
+
+      {/* Mobile Sticky Bottom Purchase Bar */}
+      <div className="mobile-sticky-action-bar">
+        <div>
+          <span style={{ fontSize: "0.75rem", color: "var(--color-text-secondary)", display: "block" }}>Price</span>
+          <div style={{ display: "flex", alignItems: "baseline", gap: "6px" }}>
+            <span style={{ fontSize: "1.2rem", fontWeight: "800", color: "var(--color-text-primary)" }}>
+              ₹{Number(product.price).toLocaleString("en-IN")}
+            </span>
+            {discountPercent > 0 && (
+              <span style={{ fontSize: "0.75rem", fontWeight: "700", color: "var(--color-coral)" }}>
+                {discountPercent}% OFF
+              </span>
+            )}
+          </div>
+        </div>
+
+        <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+          <button
+            type="button"
+            onClick={() => toggleWishlist(product)}
+            className="btn btn-secondary btn-icon-only"
+            style={{ width: "42px", height: "42px", borderRadius: "var(--radius-pill)" }}
+            aria-label="Wishlist"
+          >
+            <Heart size={18} fill={inWishlist ? "var(--color-coral)" : "none"} color={inWishlist ? "var(--color-coral)" : "currentColor"} />
+          </button>
+          <button
+            type="button"
+            onClick={handleAddToCart}
+            disabled={isOutOfStock}
+            className={`btn btn-sm ${isOutOfStock ? "btn-secondary" : addedFeedback ? "btn-accent" : "btn-primary"}`}
+            style={{ height: "42px", padding: "0 18px", borderRadius: "var(--radius-pill)", fontWeight: "700" }}
+          >
+            <ShoppingBag size={16} />
+            <span>{isOutOfStock ? "Sold Out" : addedFeedback ? "Added! ✓" : "Add to Bag"}</span>
+          </button>
         </div>
       </div>
     </>

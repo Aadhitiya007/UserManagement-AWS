@@ -145,6 +145,7 @@ function Products() {
       <div className="container" style={{ paddingTop: "32px", paddingBottom: "60px" }}>
         {/* Toolbar: Category Title, Search, Sort */}
         <div
+          className="store-header-wrap"
           style={{
             display: "flex",
             justifyContent: "space-between",
@@ -171,8 +172,8 @@ function Products() {
             </p>
           </div>
 
-          <div style={{ display: "flex", alignItems: "center", gap: "10px", flexWrap: "wrap" }}>
-            <div style={{ position: "relative", minWidth: "220px" }}>
+          <div className="store-controls-wrap" style={{ display: "flex", alignItems: "center", gap: "10px", flexWrap: "wrap" }}>
+            <div className="store-search-wrap" style={{ position: "relative", minWidth: "220px" }}>
               <Search
                 size={16}
                 style={{
@@ -226,12 +227,14 @@ function Products() {
 
         {/* Category Pill Bar */}
         <div
+          className="category-pills-bar"
           style={{
             display: "flex",
             gap: "8px",
             overflowX: "auto",
             paddingBottom: "14px",
-            marginBottom: "28px"
+            marginBottom: "28px",
+            WebkitOverflowScrolling: "touch"
           }}
         >
           {categories.map((cat) => {
@@ -410,7 +413,7 @@ function Products() {
                       <div style={{ marginTop: "16px", display: "flex", gap: "8px" }}>
                         <Link
                           to={`/products/${pId}`}
-                          className="btn btn-secondary btn-sm"
+                          className="btn btn-secondary btn-sm product-card-btn"
                           style={{ flex: 1 }}
                         >
                           Details
@@ -419,7 +422,7 @@ function Products() {
                           type="button"
                           onClick={() => handleQuickAddToCart(product)}
                           disabled={isOutOfStock}
-                          className={`btn btn-sm ${isOutOfStock ? "btn-secondary" : isJustAdded ? "btn-accent" : "btn-primary"}`}
+                          className={`btn btn-sm product-card-btn ${isOutOfStock ? "btn-secondary" : isJustAdded ? "btn-accent" : "btn-primary"}`}
                           style={{ flex: 1.3 }}
                         >
                           <ShoppingBag size={14} />
