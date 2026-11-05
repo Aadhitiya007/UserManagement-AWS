@@ -2,7 +2,18 @@ import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import Navbar from "../components/Navbar";
 import { useCart } from "../context/CartContext";
+import Badge from "../components/ui/Badge";
+import EmptyState from "../components/ui/EmptyState";
 import { API_URL } from "../config/api";
+import {
+  ShoppingBag,
+  Trash2,
+  Tag,
+  ArrowRight,
+  ShieldCheck,
+  Truck,
+  AlertTriangle
+} from "lucide-react";
 
 function Cart() {
   const { cart, updateQuantity, removeFromCart } = useCart();
@@ -16,13 +27,18 @@ function Cart() {
   const [couponError, setCouponError] = useState("");
   const [appliedCoupon, setAppliedCoupon] = useState(null);
 
-  // Check for any out-of-stock items in cart
-  const hasOutOfStockItems = cart.some((item) => (item.stock !== undefined && item.stock <= 0));
+  const hasOutOfStockItems = cart.some((item) => item.stock !== undefined && item.stock <= 0);
+  const currentUser = JSON.parse(localStorage.getItem("user") || "{}");
+  const isStaff = currentUser.role === "admin" || currentUser.role === "manager";
 
   const subtotal = cart.reduce((sum, item) => sum + item.price * item.quantity, 0);
   const couponDiscount = appliedCoupon ? Number(appliedCoupon.discountAmount || 0) : 0;
-  const deliveryFee = (subtotal - couponDiscount) >= 500 || subtotal === 0 ? 0 : 50;
+  const deliveryFee = subtotal - couponDiscount >= 500 || subtotal === 0 ? 0 : 50;
   const finalPayable = Math.max(0, subtotal - couponDiscount) + deliveryFee;
+
+  const freeDeliveryThreshold = 500;
+  const remainingForFreeDelivery = Math.max(0, freeDeliveryThreshold - (subtotal - couponDiscount));
+  const freeDeliveryProgress = Math.min(100, Math.round(((subtotal - couponDiscount) / freeDeliveryThreshold) * 100));
 
   async function handleApplyCoupon(e) {
     e?.preventDefault();
@@ -104,7 +120,6 @@ function Cart() {
         throw new Error(data.message || "Failed to place order");
       }
 
-      // Retain cart items until payment succeeds so user can return to cart safely
       const orderId = data.order?._id || data.order?.id;
       navigate(`/payment/${orderId}`);
     } catch (err) {
@@ -117,121 +132,289 @@ function Cart() {
   return (
     <>
       <Navbar />
-      <div className="container">
-        <h2 style={{ marginBottom: "20px" }}>Shopping Cart</h2>
+      <div className="container" style={{ paddingTop: "32px", paddingBottom: "60px" }}>
+        <div style={{ marginBottom: "24px" }}>
+          <h1
+            style={{
+              fontSize: "1.85rem",
+              fontWeight: "800",
+              color: "var(--color-text-primary)",
+              letterSpacing: "-0.03em",
+              margin: "0 0 4px"
+            }}
+          >
+            Your Shopping Bag
+          </h1>
+          <p style={{ fontSize: "0.88rem", color: "var(--color-text-secondary)", margin: 0 }}>
+            {cart.length} item{cart.length !== 1 ? "s" : ""} selected for checkout
+          </p>
+        </div>
+
+        {isStaff && (
+          <div
+            style={{
+              padding: "12px 18px",
+              backgroundColor: "rgba(13, 148, 136, 0.12)",
+              color: "#0F766E",
+              border: "1px solid rgba(13, 148, 136, 0.25)",
+              borderRadius: "var(--radius-md)",
+              marginBottom: "24px",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              flexWrap: "wrap",
+              gap: "10px"
+            }}
+          >
+            <span>
+              🛡️ <strong>Staff Mode Notice:</strong> You are logged in as a <strong>{currentUser.role === "admin" ? "Super Admin" : "Store Manager"}</strong>. Consumer carts are for QA testing.
+            </span>
+            <Link
+              to="/admin/orders"
+              style={{
+                color: "#0F766E",
+                fontWeight: "700",
+                textDecoration: "underline",
+                fontSize: "0.85rem"
+              }}
+            >
+              Go to Store Orders Pipeline →
+            </Link>
+          </div>
+        )}
 
         {error && (
-          <div style={{ padding: "12px", background: "#fee2e2", color: "#991b1b", borderRadius: "6px", marginBottom: "20px" }}>
+          <div
+            style={{
+              padding: "14px",
+              backgroundColor: "var(--color-error-light)",
+              color: "var(--color-error)",
+              borderRadius: "var(--radius-md)",
+              marginBottom: "20px"
+            }}
+          >
             {error}
           </div>
         )}
 
         {hasOutOfStockItems && (
-          <div style={{ padding: "14px", background: "#fffbeb", color: "#b45309", border: "1px solid #fde68a", borderRadius: "8px", marginBottom: "20px", display: "flex", alignItems: "center", gap: "10px" }}>
-            <span style={{ fontSize: "1.2rem" }}>⚠️</span>
-            <span>One or more items in your cart are currently <strong>out of stock</strong>. Please remove them before proceeding to checkout.</span>
+          <div
+            style={{
+              padding: "14px 18px",
+              backgroundColor: "var(--color-warning-light)",
+              color: "var(--color-warning)",
+              borderRadius: "var(--radius-md)",
+              marginBottom: "20px",
+              display: "flex",
+              alignItems: "center",
+              gap: "10px"
+            }}
+          >
+            <AlertTriangle size={18} />
+            <span>
+              One or more items in your cart are currently <strong>out of stock</strong>. Please remove them before proceeding to payment.
+            </span>
           </div>
         )}
 
         {cart.length === 0 ? (
-          <div style={{ background: "white", padding: "40px", textAlign: "center", borderRadius: "8px", border: "1px solid #e2e8f0" }}>
-            <p style={{ fontSize: "1.1rem", color: "#6b7280", marginBottom: "20px" }}>Your cart is empty.</p>
-            <Link to="/products" className="btn btn-primary">
-              Browse Products
-            </Link>
-          </div>
+          <EmptyState
+            icon={ShoppingBag}
+            title="Your bag is empty"
+            description="Looks like you haven't added any items to your cart yet. Discover our fresh drops now."
+            action={
+              <Link to="/products" className="btn btn-primary btn-sm">
+                <span>Browse Catalog</span>
+                <ArrowRight size={14} />
+              </Link>
+            }
+          />
         ) : (
-          <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: "30px" }}>
-            <div className="table-container">
-              <table>
-                <thead>
-                  <tr>
-                    <th>Product</th>
-                    <th>Price</th>
-                    <th>Quantity</th>
-                    <th>Subtotal</th>
-                    <th>Action</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {cart.map((item) => {
-                    const id = item._id || item.id;
-                    const imageUrl = item.imageUrl || item.image || "https://via.placeholder.com/100x100?text=No+Image";
-                    const isItemOutOfStock = item.stock !== undefined && item.stock <= 0;
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))",
+              gap: "32px",
+              alignItems: "start"
+            }}
+          >
+            {/* Left: Cart Items Table/List */}
+            <div>
+              {/* Free Shipping Progress Indicator */}
+              <div
+                className="card"
+                style={{
+                  padding: "16px 20px",
+                  marginBottom: "20px",
+                  backgroundColor: "var(--color-surface)"
+                }}
+              >
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "8px", fontSize: "0.85rem" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: "6px", fontWeight: "600", color: "var(--color-text-primary)" }}>
+                    <Truck size={16} color="var(--color-primary)" />
+                    {remainingForFreeDelivery === 0 ? (
+                      <span style={{ color: "var(--color-success)" }}>🎉 You unlocked FREE Delivery!</span>
+                    ) : (
+                      <span>Add ₹{remainingForFreeDelivery} more for FREE Delivery</span>
+                    )}
+                  </div>
+                  <span style={{ fontWeight: "700", color: "var(--color-primary)" }}>{freeDeliveryProgress}%</span>
+                </div>
+                <div
+                  style={{
+                    height: "6px",
+                    width: "100%",
+                    backgroundColor: "var(--color-surface-subtle)",
+                    borderRadius: "var(--radius-pill)",
+                    overflow: "hidden"
+                  }}
+                >
+                  <div
+                    style={{
+                      height: "100%",
+                      width: `${freeDeliveryProgress}%`,
+                      backgroundColor: remainingForFreeDelivery === 0 ? "var(--color-success)" : "var(--color-primary)",
+                      borderRadius: "var(--radius-pill)",
+                      transition: "width 0.3s ease"
+                    }}
+                  />
+                </div>
+              </div>
 
-                    return (
-                      <tr key={id} style={{ background: isItemOutOfStock ? "#fff1f2" : "" }}>
-                        <td>
-                          <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
-                            <img
-                              src={imageUrl}
-                              alt={item.name}
-                              onError={(e) => {
-                                e.currentTarget.onerror = null;
-                                e.currentTarget.src = "https://via.placeholder.com/60?text=No+Img";
-                              }}
-                              style={{ width: "50px", height: "50px", objectFit: "cover", borderRadius: "4px" }}
-                            />
-                            <div>
-                              <span style={{ fontWeight: "500", display: "block" }}>{item.name}</span>
-                              {isItemOutOfStock && (
-                                <span className="badge badge-danger" style={{ fontSize: "0.75rem", marginTop: "4px" }}>
-                                  Out of Stock
-                                </span>
-                              )}
+              {/* Items List */}
+              <div className="table-container">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Product</th>
+                      <th>Price</th>
+                      <th>Quantity</th>
+                      <th>Subtotal</th>
+                      <th style={{ textAlign: "right" }}>Remove</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {cart.map((item) => {
+                      const id = item._id || item.id;
+                      const imageUrl = item.imageUrl || item.image || "https://placehold.co/100x100?text=No+Image";
+                      const isItemOutOfStock = item.stock !== undefined && item.stock <= 0;
+
+                      return (
+                        <tr key={id} style={{ opacity: isItemOutOfStock ? 0.6 : 1 }}>
+                          <td>
+                            <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+                              <img
+                                src={imageUrl}
+                                alt={item.name}
+                                onError={(e) => {
+                                  e.currentTarget.onerror = null;
+                                  e.currentTarget.src = "https://placehold.co/60x60?text=No+Img";
+                                }}
+                                style={{
+                                  width: "52px",
+                                  height: "52px",
+                                  objectFit: "cover",
+                                  borderRadius: "var(--radius-xs)",
+                                  border: "1px solid var(--color-border)"
+                                }}
+                              />
+                              <div>
+                                <strong style={{ color: "var(--color-text-primary)", display: "block" }}>
+                                  {item.name}
+                                </strong>
+                                {isItemOutOfStock && <Badge variant="danger">Out of Stock</Badge>}
+                              </div>
                             </div>
-                          </div>
-                        </td>
-                        <td>₹{item.price}</td>
-                        <td>
-                          <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-                            <button
-                              onClick={() => updateQuantity(id, item.quantity - 1)}
-                              className="btn btn-outline btn-sm"
-                              disabled={isItemOutOfStock}
-                            >
-                              -
-                            </button>
-                            <span style={{ padding: "0 8px", fontWeight: "600" }}>{item.quantity}</span>
-                            <button
-                              onClick={() => updateQuantity(id, item.quantity + 1)}
-                              className="btn btn-outline btn-sm"
-                              disabled={isItemOutOfStock || (item.stock && item.quantity >= item.stock)}
-                            >
-                              +
-                            </button>
-                          </div>
-                        </td>
-                        <td style={{ fontWeight: "600", color: "#2563eb" }}>₹{item.price * item.quantity}</td>
-                        <td>
-                          <button onClick={() => removeFromCart(id)} className="btn btn-danger btn-sm">
-                            Remove
-                          </button>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
+                          </td>
+                          <td>
+                            <span style={{ color: "var(--color-text-primary)", fontWeight: "600" }}>
+                              ₹{item.price}
+                            </span>
+                          </td>
+                          <td>
+                            <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                              <button
+                                type="button"
+                                onClick={() => updateQuantity(id, item.quantity - 1)}
+                                className="btn btn-secondary btn-sm"
+                                disabled={isItemOutOfStock}
+                                style={{ width: "30px", height: "30px", padding: 0 }}
+                              >
+                                -
+                              </button>
+                              <span style={{ fontWeight: "700", minWidth: "22px", textAlign: "center" }}>
+                                {item.quantity}
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => updateQuantity(id, item.quantity + 1)}
+                                className="btn btn-secondary btn-sm"
+                                disabled={isItemOutOfStock || (item.stock && item.quantity >= item.stock)}
+                                style={{ width: "30px", height: "30px", padding: 0 }}
+                              >
+                                +
+                              </button>
+                            </div>
+                          </td>
+                          <td>
+                            <strong style={{ color: "var(--color-primary)" }}>
+                              ₹{item.price * item.quantity}
+                            </strong>
+                          </td>
+                          <td>
+                            <div style={{ display: "flex", justifyContent: "flex-end" }}>
+                              <button
+                                type="button"
+                                onClick={() => removeFromCart(id)}
+                                className="btn btn-ghost btn-sm"
+                                title="Remove Item"
+                              >
+                                <Trash2 size={15} color="var(--color-error)" />
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
             </div>
 
-            {/* Order Summary & Coupon Card */}
+            {/* Right: Summary & Promo Coupon */}
             <div style={{ display: "flex", flexDirection: "column", gap: "20px" }}>
-              {/* Promotional Coupon Box */}
-              <div style={{ background: "white", padding: "20px", borderRadius: "8px", border: "1px solid #e2e8f0" }}>
-                <h4 style={{ marginBottom: "12px", color: "#1e293b", fontSize: "1rem" }}>🏷️ Have a Coupon?</h4>
+              {/* Coupon Box */}
+              <div className="card">
+                <h4 style={{ fontSize: "0.95rem", fontWeight: "700", marginBottom: "12px", display: "flex", alignItems: "center", gap: "6px" }}>
+                  <Tag size={16} color="var(--color-primary)" />
+                  <span>Promotional Voucher</span>
+                </h4>
+
                 {appliedCoupon ? (
-                  <div style={{ background: "#f0fdf4", border: "1px solid #bbf7d0", padding: "12px", borderRadius: "6px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <div
+                    style={{
+                      padding: "12px 14px",
+                      borderRadius: "var(--radius-sm)",
+                      backgroundColor: "var(--color-success-light)",
+                      border: "1px solid var(--color-success)",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "space-between"
+                    }}
+                  >
                     <div>
-                      <strong style={{ color: "#15803d" }}>✓ {appliedCoupon.coupon?.code || appliedCoupon.code}</strong>
-                      <p style={{ margin: "4px 0 0", fontSize: "0.85rem", color: "#166534" }}>
-                        Saving ₹{appliedCoupon.discountAmount} on this order!
+                      <strong style={{ color: "var(--color-success)" }}>
+                        ✓ {appliedCoupon.coupon?.code || appliedCoupon.code}
+                      </strong>
+                      <p style={{ margin: "2px 0 0", fontSize: "0.8rem", color: "var(--color-success)" }}>
+                        Saving ₹{appliedCoupon.discountAmount} on this drop!
                       </p>
                     </div>
                     <button
+                      type="button"
                       onClick={handleRemoveCoupon}
-                      className="btn btn-outline btn-sm"
-                      style={{ color: "#dc2626", borderColor: "#fca5a5" }}
+                      className="btn btn-secondary btn-sm"
+                      style={{ height: "28px", padding: "0 8px", fontSize: "0.75rem" }}
                     >
                       Remove
                     </button>
@@ -241,14 +424,14 @@ function Cart() {
                     <input
                       type="text"
                       className="form-control"
-                      placeholder="e.g. WELCOME10, SPOOKY20"
+                      placeholder="e.g. WELCOME10"
                       value={couponInput}
                       onChange={(e) => setCouponInput(e.target.value.toUpperCase())}
-                      style={{ textTransform: "uppercase" }}
+                      style={{ textTransform: "uppercase", fontWeight: "700" }}
                     />
                     <button
                       type="submit"
-                      className="btn btn-primary btn-sm"
+                      className="btn btn-secondary btn-sm"
                       disabled={couponLoading || !couponInput.trim()}
                     >
                       {couponLoading ? "..." : "Apply"}
@@ -257,48 +440,69 @@ function Cart() {
                 )}
 
                 {couponError && (
-                  <p style={{ color: "#dc2626", fontSize: "0.85rem", marginTop: "8px", marginBottom: 0 }}>
+                  <p style={{ color: "var(--color-error)", fontSize: "0.82rem", marginTop: "8px", marginBottom: 0 }}>
                     {couponError}
                   </p>
                 )}
               </div>
 
               {/* Order Summary Breakdown */}
-              <div style={{ background: "white", padding: "24px", borderRadius: "8px", border: "1px solid #e2e8f0" }}>
-                <h3 style={{ marginBottom: "15px", borderBottom: "1px solid #e2e8f0", paddingBottom: "10px" }}>Order Summary</h3>
+              <div className="card">
+                <h3 style={{ fontSize: "1.15rem", fontWeight: "800", marginBottom: "16px", paddingBottom: "10px", borderBottom: "1px solid var(--color-border)" }}>
+                  Order Summary
+                </h3>
 
-                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "10px", color: "#64748b" }}>
-                  <span>Subtotal:</span>
-                  <span style={{ fontWeight: "600", color: "#0f172a" }}>₹{subtotal}</span>
-                </div>
-
-                {couponDiscount > 0 && (
-                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "10px", color: "#16a34a" }}>
-                    <span>Coupon Discount:</span>
-                    <span style={{ fontWeight: "600" }}>- ₹{couponDiscount}</span>
+                <div style={{ display: "flex", flexDirection: "column", gap: "12px", fontSize: "0.92rem", marginBottom: "20px" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", color: "var(--color-text-secondary)" }}>
+                    <span>Bag Subtotal</span>
+                    <strong style={{ color: "var(--color-text-primary)" }}>₹{subtotal}</strong>
                   </div>
-                )}
 
-                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "12px", color: "#64748b" }}>
-                  <span>Estimated Delivery:</span>
-                  <span style={{ fontWeight: "600", color: deliveryFee === 0 ? "#16a34a" : "#0f172a" }}>
-                    {deliveryFee === 0 ? "FREE" : `₹${deliveryFee}`}
-                  </span>
-                </div>
+                  {couponDiscount > 0 && (
+                    <div style={{ display: "flex", justifyContent: "space-between", color: "var(--color-success)" }}>
+                      <span>Voucher Discount</span>
+                      <strong>- ₹{couponDiscount}</strong>
+                    </div>
+                  )}
 
-                <div style={{ display: "flex", justifyContent: "space-between", paddingTop: "12px", borderTop: "1px solid #e2e8f0", fontSize: "1.2rem", fontWeight: "bold" }}>
-                  <span>Final Payable:</span>
-                  <span style={{ color: "#2563eb" }}>₹{finalPayable}</span>
+                  <div style={{ display: "flex", justifyContent: "space-between", color: "var(--color-text-secondary)" }}>
+                    <span>Estimated Delivery</span>
+                    <strong style={{ color: deliveryFee === 0 ? "var(--color-success)" : "var(--color-text-primary)" }}>
+                      {deliveryFee === 0 ? "FREE" : `₹${deliveryFee}`}
+                    </strong>
+                  </div>
+
+                  <div
+                    style={{
+                      display: "flex",
+                      justifyContent: "space-between",
+                      paddingTop: "14px",
+                      borderTop: "1px solid var(--color-border)",
+                      fontSize: "1.25rem",
+                      fontWeight: "800"
+                    }}
+                  >
+                    <span>Total Amount</span>
+                    <span style={{ color: "var(--color-primary)" }}>₹{finalPayable}</span>
+                  </div>
                 </div>
 
                 <button
+                  type="button"
                   onClick={handleCheckout}
-                  className="btn btn-primary"
-                  style={{ width: "100%", padding: "12px", marginTop: "16px" }}
                   disabled={loading || hasOutOfStockItems || cart.length === 0}
+                  className="btn btn-primary btn-lg"
+                  style={{ width: "100%" }}
                 >
-                  {loading ? "Placing Order..." : hasOutOfStockItems ? "Remove Out of Stock Items" : "Place Order"}
+                  <ShieldCheck size={18} />
+                  <span>
+                    {loading ? "Preparing Checkout..." : hasOutOfStockItems ? "Remove Out of Stock Items" : "Proceed to Payment"}
+                  </span>
                 </button>
+
+                <p style={{ textAlign: "center", fontSize: "0.78rem", color: "var(--color-text-muted)", marginTop: "14px", marginBottom: 0 }}>
+                  🔒 256-bit Encrypted Checkout with Razorpay & SES Invoice
+                </p>
               </div>
             </div>
           </div>

@@ -2,6 +2,9 @@ import { Link } from "react-router-dom";
 import Navbar from "../components/Navbar";
 import { useWishlist } from "../context/WishlistContext";
 import { useCart } from "../context/CartContext";
+import Badge from "../components/ui/Badge";
+import EmptyState from "../components/ui/EmptyState";
+import { Heart, ShoppingBag, Trash2, ArrowRight } from "lucide-react";
 
 function Wishlist() {
   const { wishlist, removeFromWishlist, moveToCart, clearWishlist } = useWishlist();
@@ -20,74 +23,118 @@ function Wishlist() {
   return (
     <>
       <Navbar />
-      <div className="wishlist-container">
-        <div className="wishlist-header">
-          <h2>
-            <span>Saved in Wishlist</span>
-            <span className="wishlist-count-pill">{wishlist.length} item{wishlist.length !== 1 ? "s" : ""}</span>
-          </h2>
-          {wishlist.length > 0 && (
-            <button
-              onClick={clearWishlist}
-              className="btn btn-outline btn-sm"
-              style={{ color: "#dc2626", borderColor: "#fca5a5" }}
+      <div className="container" style={{ paddingTop: "32px", paddingBottom: "60px" }}>
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            marginBottom: "28px",
+            flexWrap: "wrap",
+            gap: "16px"
+          }}
+        >
+          <div>
+            <h1
+              style={{
+                fontSize: "1.85rem",
+                fontWeight: "800",
+                color: "var(--color-text-primary)",
+                letterSpacing: "-0.03em",
+                margin: "0 0 4px"
+              }}
             >
-              Clear All
-            </button>
-          )}
+              Saved in Wishlist
+            </h1>
+            <p style={{ fontSize: "0.88rem", color: "var(--color-text-secondary)", margin: 0 }}>
+              Curated drops saved to your personal collection.
+            </p>
+          </div>
+
+          <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+            <Badge variant="info">{wishlist.length} Saved Drops</Badge>
+            {wishlist.length > 0 && (
+              <button
+                type="button"
+                onClick={clearWishlist}
+                className="btn btn-secondary btn-sm"
+                style={{ color: "var(--color-error)" }}
+              >
+                Clear All
+              </button>
+            )}
+          </div>
         </div>
 
         {wishlist.length === 0 ? (
-          <div className="wishlist-empty-state">
-            <div className="wishlist-empty-icon">🤍</div>
-            <h3>Your wishlist is empty</h3>
-            <p>Save items you like and track their stock or move them to cart anytime.</p>
-            <Link to="/products" className="btn btn-primary" style={{ padding: "10px 24px", borderRadius: "8px" }}>
-              Explore Products
-            </Link>
-          </div>
+          <EmptyState
+            icon={Heart}
+            title="Your wishlist is empty"
+            description="Explore our curated catalog and save items you love to track stock and price drops."
+            action={
+              <Link to="/products" className="btn btn-primary btn-sm">
+                <span>Explore Drops</span>
+                <ArrowRight size={14} />
+              </Link>
+            }
+          />
         ) : (
-          <div className="wishlist-grid">
+          <div className="product-grid">
             {wishlist.map((item) => {
               const pId = item.id || item._id || item.productId;
               const isOutOfStock = item.stock !== undefined && Number(item.stock) <= 0;
               const imgSrc = item.imageUrl || item.image || "https://placehold.co/400x300?text=No+Image";
 
               return (
-                <div key={pId} className="wishlist-card">
-                  <div className="wishlist-card-img-wrapper">
-                    {isOutOfStock && <span className="badge-out-of-stock">Out of Stock</span>}
+                <div key={pId} className="product-card">
+                  <div className="product-image-wrap">
+                    {isOutOfStock && (
+                      <div className="product-card-badge">
+                        <Badge variant="danger">Out of Stock</Badge>
+                      </div>
+                    )}
                     <Link to={`/products/${pId}`}>
-                      <img src={imgSrc} alt={item.name} className="wishlist-card-img" />
+                      <img src={imgSrc} alt={item.name} />
                     </Link>
                   </div>
 
-                  <div className="wishlist-card-body">
-                    <Link to={`/products/${pId}`} className="wishlist-card-title">
-                      {item.name}
-                    </Link>
+                  <div className="product-card-body">
+                    <span className="product-card-category">{item.category || "Lifestyle"}</span>
 
-                    <div className="wishlist-card-price-row">
-                      <span className="wishlist-card-price">₹{Number(item.price).toLocaleString("en-IN")}</span>
+                    <h3 className="product-card-title">
+                      <Link to={`/products/${pId}`}>{item.name}</Link>
+                    </h3>
+
+                    <div className="product-card-price-row">
+                      <span className="product-price-current">
+                        ₹{Number(item.price).toLocaleString("en-IN")}
+                      </span>
                       {item.mrp && Number(item.mrp) > Number(item.price) && (
-                        <span className="wishlist-card-mrp">₹{Number(item.mrp).toLocaleString("en-IN")}</span>
+                        <span className="product-price-original">
+                          ₹{Number(item.mrp).toLocaleString("en-IN")}
+                        </span>
                       )}
                     </div>
 
-                    <div className="wishlist-card-actions">
+                    <div style={{ marginTop: "16px", display: "flex", gap: "8px" }}>
                       <button
+                        type="button"
                         onClick={() => handleMoveToCart(item)}
-                        className={`wishlist-btn-move ${isOutOfStock ? "btn-out-of-stock" : ""}`}
                         disabled={isOutOfStock}
+                        className={`btn btn-sm ${isOutOfStock ? "btn-secondary" : "btn-primary"}`}
+                        style={{ flex: 1 }}
                       >
-                        {isOutOfStock ? "Out of Stock" : "Move to Bag"}
+                        <ShoppingBag size={14} />
+                        <span>{isOutOfStock ? "Sold Out" : "Move to Bag"}</span>
                       </button>
+
                       <button
+                        type="button"
                         onClick={() => removeFromWishlist(pId)}
-                        className="wishlist-btn-remove"
-                        title="Remove from wishlist"
+                        className="btn btn-secondary btn-sm btn-icon-only"
+                        title="Remove"
                       >
-                        ✕
+                        <Trash2 size={14} />
                       </button>
                     </div>
                   </div>
@@ -102,4 +149,3 @@ function Wishlist() {
 }
 
 export default Wishlist;
-

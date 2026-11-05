@@ -3,21 +3,31 @@ import { Link } from "react-router-dom";
 import Navbar from "../components/Navbar";
 import { useCart } from "../context/CartContext";
 import { useWishlist } from "../context/WishlistContext";
+import Badge from "../components/ui/Badge";
+import EmptyState from "../components/ui/EmptyState";
+import { CardSkeleton } from "../components/ui/LoadingSkeleton";
 import { API_URL } from "../config/api";
 import { throttle } from "../utils/throttle";
+import {
+  Search,
+  Heart,
+  ShoppingBag,
+  Sparkles,
+  ArrowUpDown,
+  ArrowUp,
+  RotateCcw
+} from "lucide-react";
 
 const ITEMS_PER_PAGE = 20;
 
 function getCategoryIcon(cat) {
   const lower = (cat || "").toLowerCase();
   if (lower === "all") return "✨";
-  if (lower.includes("season") || lower.includes("special") || lower.includes("halloween")) return "🎃";
   if (lower.includes("electr")) return "⚡";
-  if (lower.includes("cloth") || lower.includes("apparel") || lower.includes("knit")) return "👔";
-  if (lower.includes("home") || lower.includes("decor") || lower.includes("furnit") || lower.includes("living")) return "🛋️";
+  if (lower.includes("cloth") || lower.includes("apparel")) return "👔";
+  if (lower.includes("home") || lower.includes("kitchen")) return "🛋️";
   if (lower.includes("access")) return "🎒";
-  if (lower.includes("audio") || lower.includes("sound")) return "🎧";
-  if (lower.includes("food") || lower.includes("gourmet")) return "🍫";
+  if (lower.includes("book")) return "📚";
   return "🏷️";
 }
 
@@ -30,12 +40,14 @@ function Products() {
   const [sortBy, setSortBy] = useState("featured");
   const [showScrollTop, setShowScrollTop] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
+  const [addedItemKey, setAddedItemKey] = useState(null);
+
   const { addToCart } = useCart();
   const { isInWishlist, toggleWishlist } = useWishlist();
 
   useEffect(() => {
     const handleScroll = throttle(() => {
-      setShowScrollTop(window.scrollY > 250);
+      setShowScrollTop(window.scrollY > 300);
     }, 150);
 
     window.addEventListener("scroll", handleScroll);
@@ -58,7 +70,7 @@ function Products() {
       const res = await fetch(url);
       const data = await res.json();
       if (!res.ok) throw new Error(data.message || "Failed to fetch products");
-      setProducts(data);
+      setProducts(Array.isArray(data) ? data : data.products || []);
       setCurrentPage(1);
     } catch (err) {
       setError(err.message);
@@ -67,7 +79,6 @@ function Products() {
     }
   }
 
-  // Derive all unique non-empty categories present in the products catalog
   const categories = useMemo(() => {
     const set = new Set();
     products.forEach((p) => {
@@ -78,19 +89,15 @@ function Products() {
     return ["All", ...Array.from(set).sort()];
   }, [products]);
 
-  // Compute product count per category
   const categoryCounts = useMemo(() => {
     const counts = { All: products.length };
     products.forEach((p) => {
       const cat = p.category && typeof p.category === "string" ? p.category.trim() : null;
-      if (cat) {
-        counts[cat] = (counts[cat] || 0) + 1;
-      }
+      if (cat) counts[cat] = (counts[cat] || 0) + 1;
     });
     return counts;
   }, [products]);
 
-  // Instant client-side category filtering
   const filteredProducts = useMemo(() => {
     if (selectedCategory === "All") return products;
     return products.filter((p) => {
@@ -99,7 +106,6 @@ function Products() {
     });
   }, [products, selectedCategory]);
 
-  // Client-side sorting (Phase 3)
   const sortedProducts = useMemo(() => {
     const list = [...filteredProducts];
     if (sortBy === "price-low") {
@@ -119,7 +125,13 @@ function Products() {
     setCurrentPage(1);
   }
 
-  // Pagination (20 products per page based on sorted and filtered list)
+  function handleQuickAddToCart(product) {
+    addToCart(product);
+    const pId = product._id || product.id;
+    setAddedItemKey(pId);
+    setTimeout(() => setAddedItemKey(null), 1200);
+  }
+
   const totalPages = Math.ceil(sortedProducts.length / ITEMS_PER_PAGE) || 1;
   const paginatedProducts = sortedProducts.slice(
     (currentPage - 1) * ITEMS_PER_PAGE,
@@ -129,24 +141,73 @@ function Products() {
   return (
     <>
       <Navbar />
-      <div className="container">
-        {/* Catalog Header & Search/Sort Toolbar */}
-        <div id="catalog-view" style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", marginBottom: "18px", flexWrap: "wrap", gap: "14px", marginTop: "12px" }}>
+
+      <div className="container" style={{ paddingTop: "32px", paddingBottom: "60px" }}>
+        {/* Toolbar: Category Title, Search, Sort */}
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            flexWrap: "wrap",
+            gap: "16px",
+            marginBottom: "20px"
+          }}
+        >
           <div>
-            <span style={{ fontSize: "0.72rem", textTransform: "uppercase", letterSpacing: "0.06em", color: "#f97316", fontWeight: "700" }}>
-              Catalog & Curation · {sortedProducts.length} {sortedProducts.length === 1 ? "Item" : "Items"}
-            </span>
-            <h2 style={{ fontSize: "1.75rem", fontWeight: "800", color: "#0f172a", margin: "4px 0 0" }}>
+            <h2
+              style={{
+                fontSize: "1.6rem",
+                fontWeight: "800",
+                color: "var(--color-text-primary)",
+                letterSpacing: "-0.02em",
+                margin: "0 0 2px"
+              }}
+            >
               {selectedCategory === "All" ? "Curated Collection" : `${selectedCategory} Collection`}
             </h2>
+            <p style={{ fontSize: "0.85rem", color: "var(--color-text-secondary)", margin: 0 }}>
+              Showing {sortedProducts.length} verified listings
+            </p>
           </div>
 
           <div style={{ display: "flex", alignItems: "center", gap: "10px", flexWrap: "wrap" }}>
-            {/* Sorting Dropdown */}
+            <div style={{ position: "relative", minWidth: "220px" }}>
+              <Search
+                size={16}
+                style={{
+                  position: "absolute",
+                  left: "14px",
+                  top: "50%",
+                  transform: "translateY(-50%)",
+                  color: "var(--color-text-muted)"
+                }}
+              />
+              <input
+                type="text"
+                className="form-control"
+                placeholder="Search collection..."
+                style={{
+                  paddingLeft: "36px",
+                  borderRadius: "var(--radius-pill)",
+                  height: "40px",
+                  fontSize: "0.88rem"
+                }}
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+              />
+            </div>
+
             <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-              <span style={{ fontSize: "0.78rem", color: "#64748b", fontWeight: "600" }}>Sort:</span>
+              <ArrowUpDown size={15} color="var(--color-text-muted)" />
               <select
-                className="catalog-sort-select"
+                className="form-control"
+                style={{
+                  borderRadius: "var(--radius-pill)",
+                  height: "40px",
+                  fontSize: "0.85rem",
+                  fontWeight: "600"
+                }}
                 value={sortBy}
                 onChange={(e) => {
                   setSortBy(e.target.value);
@@ -160,26 +221,19 @@ function Products() {
                 <option value="rating">⭐ Highest Rated</option>
               </select>
             </div>
-
-            {/* Search Input */}
-            <div style={{ position: "relative", minWidth: "240px" }}>
-              <input
-                type="text"
-                className="form-control"
-                placeholder="Search products by title, tag..."
-                style={{ paddingLeft: "36px", borderRadius: "9999px", background: "#ffffff", borderColor: "#cbd5e1", fontSize: "0.85rem" }}
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-              />
-              <span style={{ position: "absolute", left: "14px", top: "50%", transform: "translateY(-50%)", color: "#94a3b8", fontSize: "0.9rem", pointerEvents: "none" }}>
-                🔍
-              </span>
-            </div>
           </div>
         </div>
 
-        {/* Horizontal Category Pill Bar */}
-        <div className="category-pill-bar">
+        {/* Category Pill Bar */}
+        <div
+          style={{
+            display: "flex",
+            gap: "8px",
+            overflowX: "auto",
+            paddingBottom: "14px",
+            marginBottom: "28px"
+          }}
+        >
           {categories.map((cat) => {
             const isActive = selectedCategory.toLowerCase() === cat.toLowerCase();
             const count = categoryCounts[cat] || 0;
@@ -189,47 +243,89 @@ function Products() {
               <button
                 key={cat}
                 type="button"
-                className={`category-pill-btn ${isActive ? "active" : ""}`}
                 onClick={() => handleSelectCategory(cat)}
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: "6px",
+                  padding: "8px 16px",
+                  borderRadius: "var(--radius-pill)",
+                  fontSize: "0.85rem",
+                  fontWeight: "600",
+                  whiteSpace: "nowrap",
+                  backgroundColor: isActive ? "var(--color-primary)" : "var(--color-surface)",
+                  color: isActive ? "#FFFFFF" : "var(--color-text-secondary)",
+                  border: isActive ? "1px solid var(--color-primary)" : "1px solid var(--color-border)",
+                  boxShadow: isActive ? "0 4px 12px rgba(49, 94, 251, 0.25)" : "var(--shadow-xs)",
+                  transition: "all var(--transition-fast)"
+                }}
               >
-                <span>{icon} {cat === "All" ? "All Products" : cat}</span>
-                <span className="category-pill-count">{count}</span>
+                <span>{icon} {cat === "All" ? "All Drops" : cat}</span>
+                <span
+                  style={{
+                    fontSize: "0.72rem",
+                    fontWeight: "700",
+                    padding: "1px 6px",
+                    borderRadius: "var(--radius-pill)",
+                    backgroundColor: isActive ? "rgba(255, 255, 255, 0.25)" : "var(--color-surface-subtle)",
+                    color: isActive ? "#FFFFFF" : "var(--color-text-muted)"
+                  }}
+                >
+                  {count}
+                </span>
               </button>
             );
           })}
         </div>
 
         {error && (
-          <div style={{ padding: "12px", background: "#fee2e2", color: "#991b1b", borderRadius: "6px", marginBottom: "20px" }}>
+          <div
+            style={{
+              padding: "14px",
+              backgroundColor: "var(--color-error-light)",
+              color: "var(--color-error)",
+              borderRadius: "var(--radius-md)",
+              marginBottom: "20px"
+            }}
+          >
             {error}
           </div>
         )}
 
+        {/* Product Cards Grid */}
         {loading ? (
-          <p>Loading products...</p>
-        ) : sortedProducts.length === 0 ? (
-          <div style={{ textAlign: "center", padding: "60px 20px", background: "#f8fafc", borderRadius: "12px", border: "1px dashed #cbd5e1", margin: "20px 0" }}>
-            <div style={{ fontSize: "2.5rem", marginBottom: "12px" }}>🔍</div>
-            <h3 style={{ fontSize: "1.2rem", fontWeight: "700", color: "#0f172a", marginBottom: "6px" }}>No matching products found</h3>
-            <p style={{ color: "#64748b", fontSize: "0.9rem", marginBottom: "16px" }}>
-              {selectedCategory !== "All"
-                ? `There are currently no products under "${selectedCategory}" matching your search.`
-                : "No products matched your search query."}
-            </p>
-            {(selectedCategory !== "All" || search) && (
-              <button
-                type="button"
-                onClick={() => {
-                  setSelectedCategory("All");
-                  setSearch("");
-                  setCurrentPage(1);
-                }}
-                className="btn btn-primary btn-sm"
-              >
-                Reset Filters & Show All
-              </button>
-            )}
+          <div className="product-grid">
+            <CardSkeleton />
+            <CardSkeleton />
+            <CardSkeleton />
+            <CardSkeleton />
           </div>
+        ) : sortedProducts.length === 0 ? (
+          <EmptyState
+            icon={Sparkles}
+            title="No matching products found"
+            description={
+              selectedCategory !== "All"
+                ? `There are no active drops under "${selectedCategory}" matching your criteria.`
+                : "No products matched your search term."
+            }
+            action={
+              (selectedCategory !== "All" || search) && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSelectedCategory("All");
+                    setSearch("");
+                    setCurrentPage(1);
+                  }}
+                  className="btn btn-primary btn-sm"
+                >
+                  <RotateCcw size={14} />
+                  <span>Reset Filters</span>
+                </button>
+              )
+            }
+          />
         ) : (
           <>
             <div className="product-grid">
@@ -241,18 +337,18 @@ function Products() {
                   "https://placehold.co/400x300?text=No+Image";
 
                 const isOutOfStock = product.stock !== undefined && Number(product.stock) <= 0;
+                const isLowStock = !isOutOfStock && product.stock !== undefined && Number(product.stock) <= 5;
+                const inWishlist = isInWishlist(pId);
+                const isJustAdded = addedItemKey === pId;
+
                 const hasDiscount = product.mrp && Number(product.mrp) > Number(product.price);
                 const discountPercent = hasDiscount
                   ? Math.round(((Number(product.mrp) - Number(product.price)) / Number(product.mrp)) * 100)
                   : 0;
-                const inWishlist = isInWishlist(pId);
 
                 return (
-                  <div key={pId} className="product-card" style={{ position: "relative" }}>
-                    {/* Out of Stock Ribbon Overlay */}
-                    {isOutOfStock && <span className="badge-out-of-stock">Out of Stock</span>}
-
-                    {/* Wishlist Heart Toggle */}
+                  <div key={pId} className="product-card">
+                    {/* Floating Wishlist Heart */}
                     <button
                       type="button"
                       onClick={(e) => {
@@ -260,59 +356,74 @@ function Products() {
                         e.stopPropagation();
                         toggleWishlist(product);
                       }}
-                      className={`wishlist-heart-btn ${inWishlist ? "active" : ""}`}
+                      className={`product-wishlist-btn ${inWishlist ? "active" : ""}`}
                       title={inWishlist ? "Remove from wishlist" : "Add to wishlist"}
-                      aria-label="Toggle Wishlist"
+                      aria-label="Wishlist"
                     >
-                      {inWishlist ? "❤️" : "🤍"}
+                      <Heart size={16} fill={inWishlist ? "var(--color-coral)" : "none"} />
                     </button>
 
+                    {/* Stock / Promo Badge */}
+                    <div className="product-card-badge">
+                      {isOutOfStock ? (
+                        <Badge variant="danger">Out of Stock</Badge>
+                      ) : isLowStock ? (
+                        <Badge variant="warning">Only {product.stock} Left</Badge>
+                      ) : hasDiscount ? (
+                        <Badge variant="success">{discountPercent}% OFF</Badge>
+                      ) : null}
+                    </div>
+
                     <Link to={`/products/${pId}`}>
-                      <img
-                        src={imageUrl}
-                        alt={product.name}
-                        onError={(e) => {
-                          e.currentTarget.onerror = null;
-                          e.currentTarget.src = "https://placehold.co/400x300?text=No+Image";
-                        }}
-                      />
+                      <div className="product-image-wrap">
+                        <img
+                          src={imageUrl}
+                          alt={product.name}
+                          onError={(e) => {
+                            e.currentTarget.onerror = null;
+                            e.currentTarget.src = "https://placehold.co/400x300?text=No+Image";
+                          }}
+                        />
+                      </div>
                     </Link>
 
                     <div className="product-card-body">
-                      <span style={{ fontSize: "0.8rem", color: "#6b7280", textTransform: "uppercase", fontWeight: 600 }}>
-                        {product.category}
+                      <span className="product-card-category">
+                        {product.category || "Lifestyle"}
                       </span>
+
                       <h3 className="product-card-title">
                         <Link to={`/products/${pId}`}>{product.name}</Link>
                       </h3>
 
-                      <div style={{ display: "flex", alignItems: "baseline", gap: "8px", margin: "6px 0 14px" }}>
-                        <span className="product-card-price" style={{ margin: 0 }}>
+                      <div className="product-card-price-row">
+                        <span className="product-price-current">
                           ₹{Number(product.price).toLocaleString("en-IN")}
                         </span>
                         {hasDiscount && (
-                          <>
-                            <span style={{ fontSize: "0.88rem", color: "#94a3b8", textDecoration: "line-through" }}>
-                              ₹{Number(product.mrp).toLocaleString("en-IN")}
-                            </span>
-                            <span style={{ fontSize: "0.82rem", color: "#16a34a", fontWeight: "bold" }}>
-                              {discountPercent}% OFF
-                            </span>
-                          </>
+                          <span className="product-price-original">
+                            ₹{Number(product.mrp).toLocaleString("en-IN")}
+                          </span>
                         )}
                       </div>
 
-                      <div style={{ marginTop: "auto", display: "flex", gap: "10px" }}>
-                        <Link to={`/products/${pId}`} className="btn btn-outline btn-sm" style={{ flex: 1, textAlign: "center" }}>
+                      <div style={{ marginTop: "16px", display: "flex", gap: "8px" }}>
+                        <Link
+                          to={`/products/${pId}`}
+                          className="btn btn-secondary btn-sm"
+                          style={{ flex: 1 }}
+                        >
                           Details
                         </Link>
                         <button
-                          onClick={() => addToCart(product)}
+                          type="button"
+                          onClick={() => handleQuickAddToCart(product)}
                           disabled={isOutOfStock}
-                          className={`btn btn-sm ${isOutOfStock ? "btn-out-of-stock" : "btn-primary"}`}
-                          style={{ flex: 1 }}
+                          className={`btn btn-sm ${isOutOfStock ? "btn-secondary" : isJustAdded ? "btn-accent" : "btn-primary"}`}
+                          style={{ flex: 1.3 }}
                         >
-                          {isOutOfStock ? "Out of Stock" : "Add to Cart"}
+                          <ShoppingBag size={14} />
+                          <span>{isOutOfStock ? "Sold Out" : isJustAdded ? "Added! ✓" : "Add to Bag"}</span>
                         </button>
                       </div>
                     </div>
@@ -323,7 +434,15 @@ function Products() {
 
             {/* Pagination Controls */}
             {totalPages > 1 && (
-              <div style={{ display: "flex", justifyContent: "center", alignItems: "center", gap: "10px", marginTop: "30px" }}>
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "center",
+                  alignItems: "center",
+                  gap: "12px",
+                  marginTop: "36px"
+                }}
+              >
                 <button
                   type="button"
                   onClick={() => {
@@ -331,13 +450,12 @@ function Products() {
                     window.scrollTo({ top: 0, behavior: "smooth" });
                   }}
                   disabled={currentPage === 1}
-                  className="btn btn-outline btn-sm"
-                  style={{ padding: "6px 14px" }}
+                  className="btn btn-secondary btn-sm"
                 >
                   ← Previous
                 </button>
 
-                <span style={{ fontSize: "0.9rem", color: "#475569" }}>
+                <span style={{ fontSize: "0.88rem", color: "var(--color-text-secondary)" }}>
                   Page <strong>{currentPage}</strong> of <strong>{totalPages}</strong>
                 </span>
 
@@ -348,8 +466,7 @@ function Products() {
                     window.scrollTo({ top: 0, behavior: "smooth" });
                   }}
                   disabled={currentPage === totalPages}
-                  className="btn btn-outline btn-sm"
-                  style={{ padding: "6px 14px" }}
+                  className="btn btn-secondary btn-sm"
                 >
                   Next →
                 </button>
@@ -361,10 +478,28 @@ function Products() {
         {showScrollTop && (
           <button
             onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}
-            className="scroll-to-top-btn"
-            title="Back to Top"
+            style={{
+              position: "fixed",
+              bottom: "28px",
+              right: "28px",
+              width: "44px",
+              height: "44px",
+              borderRadius: "50%",
+              backgroundColor: "var(--color-surface)",
+              color: "var(--color-text-primary)",
+              border: "1px solid var(--color-border)",
+              boxShadow: "var(--shadow-lg)",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              zIndex: 90,
+              cursor: "pointer",
+              transition: "transform var(--transition-fast)"
+            }}
+            title="Scroll to Top"
+            aria-label="Back to Top"
           >
-            ↑
+            <ArrowUp size={18} />
           </button>
         )}
       </div>

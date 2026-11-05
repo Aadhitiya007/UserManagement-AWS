@@ -1,7 +1,7 @@
 const express = require("express");
 const router = express.Router();
 const { verifyToken } = require("../middleware/authMiddleware");
-const { requireAdmin } = require("../middleware/roleMiddleware");
+const { requireStaff } = require("../middleware/roleMiddleware");
 const {
   validateCoupon,
   getAllCoupons,
@@ -13,11 +13,11 @@ const {
 // Customer coupon validation endpoint (requires authenticated user)
 router.post("/validate", verifyToken, validateCoupon);
 
-// Admin-only management endpoints
-router.get("/", verifyToken, requireAdmin, getAllCoupons);
-router.post("/", verifyToken, requireAdmin, createCoupon);
-router.put("/:id", verifyToken, requireAdmin, updateCoupon);
-router.delete("/:id", verifyToken, requireAdmin, deleteCoupon);
+// Staff management endpoints (Admin + Manager)
+router.get("/", verifyToken, requireStaff, getAllCoupons);
+router.post("/", verifyToken, requireStaff, createCoupon);
+router.put("/:id", verifyToken, requireStaff, updateCoupon);
+router.delete("/:id", verifyToken, requireStaff, deleteCoupon);
 
 module.exports = router;
 

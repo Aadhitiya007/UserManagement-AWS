@@ -1,11 +1,12 @@
 const express = require("express");
 const router = express.Router();
 const { verifyToken } = require("../middleware/authMiddleware");
-const { requireAdmin } = require("../middleware/roleMiddleware");
-const { getUsers, deleteUser, updateUser } = require("../controllers/userController");
+const { requireAdmin, requireSelfOrAdmin } = require("../middleware/roleMiddleware");
+const { getUsers, createUser, deleteUser, updateUser } = require("../controllers/userController");
 
 router.get("/", verifyToken, requireAdmin, getUsers);
-router.put("/:id", verifyToken, requireAdmin, updateUser);
+router.post("/", verifyToken, requireAdmin, createUser);
+router.put("/:id", verifyToken, requireSelfOrAdmin, updateUser);
 router.delete("/:id", verifyToken, requireAdmin, deleteUser);
 
 module.exports = router;
