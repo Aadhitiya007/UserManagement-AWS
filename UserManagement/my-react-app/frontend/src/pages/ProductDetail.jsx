@@ -15,9 +15,7 @@ import {
   ShieldCheck,
   RotateCcw,
   Truck,
-  CheckCircle2,
-  Lock,
-  MessageSquare
+  Lock
 } from "lucide-react";
 
 function ProductDetail() {

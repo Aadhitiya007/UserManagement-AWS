@@ -1,7 +1,6 @@
 import { useState } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import { API_URL } from "../../config/api";
-import logo from "../../assets/logo.png";
 import { ShieldCheck, Mail, Lock, ArrowLeft, AlertCircle } from "lucide-react";
 
 function AdminLogin() {

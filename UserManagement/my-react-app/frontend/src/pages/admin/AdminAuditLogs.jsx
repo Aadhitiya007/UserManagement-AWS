@@ -10,8 +10,6 @@ import { API_URL } from "../../config/api";
 import {
   ScrollText,
   Search,
-  Filter,
-  Shield,
   Eye,
   RotateCcw
 } from "lucide-react";

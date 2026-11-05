@@ -10,12 +10,6 @@ import { API_URL } from "../../config/api";
 import {
   ShoppingBag,
   Search,
-  Filter,
-  CreditCard,
-  CheckCircle2,
-  Clock,
-  XCircle,
-  Truck,
   RotateCcw
 } from "lucide-react";
 
@@ -142,21 +136,6 @@ function AdminOrders() {
   function handleFilterChange(setter, val) {
     setter(val);
     setCurrentPage(1);
-  }
-
-  function getFulfillmentBadge(status) {
-    switch (status) {
-      case "Delivered":
-        return <Badge variant="success">Delivered</Badge>;
-      case "Shipped":
-        return <Badge variant="info">Shipped</Badge>;
-      case "Processing":
-        return <Badge variant="warning">Processing</Badge>;
-      case "Cancelled":
-        return <Badge variant="danger">Cancelled</Badge>;
-      default:
-        return <Badge variant="neutral">Pending</Badge>;
-    }
   }
 
   return (

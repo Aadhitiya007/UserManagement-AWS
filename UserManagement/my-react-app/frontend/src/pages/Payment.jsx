@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { useParams, useNavigate, useSearchParams, Link } from "react-router-dom";
+import { useParams, useNavigate, useSearchParams } from "react-router-dom";
 import { 
   ShieldCheck, 
   CreditCard, 
@@ -8,10 +8,8 @@ import {
   AlertCircle, 
   Lock, 
   CheckCircle2, 
-  HelpCircle,
-  Smartphone,
-  Building2,
-  Receipt
+  Smartphone, 
+  Building2 
 } from "lucide-react";
 import Navbar from "../components/Navbar";
 import { useCart } from "../context/CartContext";

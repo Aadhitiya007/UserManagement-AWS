@@ -1,19 +1,13 @@
 import { useState, useEffect } from "react";
-import { useNavigate, Link } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import { io } from "socket.io-client";
 import { 
   Package, 
   Search, 
   FileText, 
-  Truck, 
-  CheckCircle2, 
-  Clock, 
   AlertCircle, 
   ShoppingBag, 
-  ChevronRight,
-  ArrowRight,
-  Calendar,
-  CreditCard,
+  Calendar, 
   Tag
 } from "lucide-react";
 import Navbar from "../components/Navbar";

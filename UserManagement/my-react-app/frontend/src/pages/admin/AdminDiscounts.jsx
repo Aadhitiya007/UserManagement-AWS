@@ -12,12 +12,7 @@ import {
   Copy,
   Check,
   Calendar,
-  AlertCircle,
-  Trash2,
-  ToggleLeft,
-  ToggleRight,
-  Percent,
-  CheckCircle2
+  Trash2
 } from "lucide-react";
 
 function AdminDiscounts() {

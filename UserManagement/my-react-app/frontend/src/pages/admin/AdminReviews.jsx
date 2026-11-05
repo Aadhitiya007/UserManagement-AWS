@@ -6,7 +6,7 @@ import Badge from "../../components/ui/Badge";
 import EmptyState from "../../components/ui/EmptyState";
 import { TableRowSkeleton } from "../../components/ui/LoadingSkeleton";
 import { API_URL } from "../../config/api";
-import { Star, Search, Trash2, MessageSquare, AlertCircle } from "lucide-react";
+import { Star, Search, Trash2, MessageSquare } from "lucide-react";
 
 const ITEMS_PER_PAGE = 20;
 

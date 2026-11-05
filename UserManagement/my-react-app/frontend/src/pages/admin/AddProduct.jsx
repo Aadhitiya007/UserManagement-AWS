@@ -4,7 +4,7 @@ import Navbar from "../../components/Navbar";
 import AdminSidebar from "../../components/AdminSidebar";
 import PageHeader from "../../components/ui/PageHeader";
 import { API_URL } from "../../config/api";
-import { ArrowLeft, Upload, Check, AlertCircle } from "lucide-react";
+import { ArrowLeft, Upload, AlertCircle } from "lucide-react";
 
 function AddProduct() {
   const [name, setName] = useState("");

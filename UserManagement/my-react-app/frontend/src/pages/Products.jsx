@@ -15,9 +15,6 @@ import {
   Sparkles,
   ArrowUpDown,
   ArrowUp,
-  Zap,
-  ShieldCheck,
-  Truck,
   RotateCcw
 } from "lucide-react";
 

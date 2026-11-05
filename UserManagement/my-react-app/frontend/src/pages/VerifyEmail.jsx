@@ -5,10 +5,7 @@ import {
   AlertCircle, 
   Clock, 
   Mail, 
-  Send, 
-  ArrowRight,
-  ShoppingBag,
-  Sparkles
+  Send 
 } from "lucide-react";
 import Navbar from "../components/Navbar";
 import { API_URL } from "../config/api";
@@ -64,7 +61,7 @@ function VerifyEmail() {
       });
       const data = await res.json();
       setResendStatus(data.message || "A new verification link has been sent if an unverified account exists.");
-    } catch (err) {
+    } catch {
       setResendStatus("Failed to send verification email. Please try again.");
     } finally {
       setResending(false);

@@ -12,9 +12,7 @@ import {
   ArrowRight,
   ShieldCheck,
   Truck,
-  AlertTriangle,
-  CheckCircle2,
-  Sparkles
+  AlertTriangle
 } from "lucide-react";
 
 function Cart() {

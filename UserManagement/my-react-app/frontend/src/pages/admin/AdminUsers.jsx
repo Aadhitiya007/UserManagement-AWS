@@ -13,12 +13,7 @@ import {
   Search,
   Filter,
   Edit2,
-  Trash2,
-  Shield,
-  ShieldCheck,
-  User,
-  Phone,
-  Globe
+  Trash2
 } from "lucide-react";
 
 const ITEMS_PER_PAGE = 20;

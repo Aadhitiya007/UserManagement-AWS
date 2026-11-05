@@ -2,21 +2,17 @@ import { useState, useEffect } from "react";
 import { useSearchParams, useNavigate, Link } from "react-router-dom";
 import { 
   CheckCircle2, 
-  Receipt, 
   FileText, 
   Package, 
   ShoppingBag, 
   Download, 
   Clock, 
   AlertCircle,
-  ExternalLink,
-  Sparkles,
-  ArrowRight
+  Sparkles
 } from "lucide-react";
 import Navbar from "../components/Navbar";
 import { API_URL } from "../config/api";
 import LoadingSkeleton from "../components/ui/LoadingSkeleton";
-import Badge from "../components/ui/Badge";
 
 function PaymentSuccess() {
   const [searchParams] = useSearchParams();

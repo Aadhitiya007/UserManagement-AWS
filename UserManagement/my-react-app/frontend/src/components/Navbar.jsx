@@ -94,16 +94,16 @@ function Navbar() {
 
   function handleLogout() {
     if (token) {
-      try {
-        fetch(`${API_URL}/api/auth/logout`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${token}`
-          },
-          body: JSON.stringify({ email: currentUser?.email })
-        }).catch(() => {});
-      } catch (_) {}
+      fetch(`${API_URL}/api/auth/logout`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify({ email: currentUser?.email })
+      }).catch(() => {
+        // Ignore network errors on logout
+      });
     }
 
     localStorage.removeItem("token");

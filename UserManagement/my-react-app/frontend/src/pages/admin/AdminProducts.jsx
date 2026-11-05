@@ -12,7 +12,6 @@ import {
   Search,
   Edit2,
   Trash2,
-  Package,
   Filter,
   ArrowUpDown,
   Boxes

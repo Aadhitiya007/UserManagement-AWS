@@ -12,14 +12,7 @@ import {
   ShoppingBag,
   Boxes,
   Users,
-  AlertTriangle,
-  Tag,
-  Activity,
-  ArrowUpRight,
   ShieldCheck,
-  CheckCircle2,
-  Clock,
-  Sparkles,
   ExternalLink
 } from "lucide-react";
 
