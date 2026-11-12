@@ -1,38 +1,71 @@
+import { lazy, Suspense, useEffect } from "react";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { ThemeProvider } from "./context/ThemeContext";
 import { CartProvider } from "./context/CartContext";
 import { WishlistProvider } from "./context/WishlistContext";
 import ProtectedRoute from "./components/ProtectedRoute";
 
+// Immediate eager-loaded storefront landing page for instant First Contentful Paint
 import Products from "./pages/Products";
-import ProductDetail from "./pages/ProductDetail";
-import Wishlist from "./pages/Wishlist";
-import Cart from "./pages/cart";
-import Orders from "./pages/Orders";
-import Payment from "./pages/Payment";
-import PaymentSuccess from "./pages/PaymentSuccess";
 
-import Login from "./pages/Login";
-import Signup from "./pages/Signup";
-import VerifyEmail from "./pages/VerifyEmail";
-import ForgotPassword from "./pages/ForgotPassword";
-import ResetPassword from "./pages/ResetPassword";
+// Route-Level Code Splitting (lazy loading) for all secondary and admin pages
+const ProductDetail = lazy(() => import("./pages/ProductDetail"));
+const Wishlist = lazy(() => import("./pages/Wishlist"));
+const Cart = lazy(() => import("./pages/cart"));
+const Orders = lazy(() => import("./pages/Orders"));
+const Payment = lazy(() => import("./pages/Payment"));
+const PaymentSuccess = lazy(() => import("./pages/PaymentSuccess"));
 
-import AdminLogin from "./pages/admin/AdminLogin";
-import AdminDashboard from "./pages/admin/AdminDashboard";
-import AdminProducts from "./pages/admin/AdminProducts";
-import AddProduct from "./pages/admin/AddProduct";
-import EditProduct from "./pages/admin/EditProduct";
-import AdminOrders from "./pages/admin/AdminOrders";
-import AdminUsers from "./pages/admin/AdminUsers";
-import AdminReviews from "./pages/admin/AdminReviews";
-import AdminDiscounts from "./pages/admin/AdminDiscounts";
-import AdminAuditLogs from "./pages/admin/AdminAuditLogs";
+const Login = lazy(() => import("./pages/Login"));
+const Signup = lazy(() => import("./pages/Signup"));
+const VerifyEmail = lazy(() => import("./pages/VerifyEmail"));
+const ForgotPassword = lazy(() => import("./pages/ForgotPassword"));
+const ResetPassword = lazy(() => import("./pages/ResetPassword"));
 
-import { useEffect } from "react";
+// Isolated Admin Portal chunks (customers never download admin bundle)
+const AdminLogin = lazy(() => import("./pages/admin/AdminLogin"));
+const AdminDashboard = lazy(() => import("./pages/admin/AdminDashboard"));
+const AdminProducts = lazy(() => import("./pages/admin/AdminProducts"));
+const AddProduct = lazy(() => import("./pages/admin/AddProduct"));
+const EditProduct = lazy(() => import("./pages/admin/EditProduct"));
+const AdminOrders = lazy(() => import("./pages/admin/AdminOrders"));
+const AdminUsers = lazy(() => import("./pages/admin/AdminUsers"));
+const AdminReviews = lazy(() => import("./pages/admin/AdminReviews"));
+const AdminDiscounts = lazy(() => import("./pages/admin/AdminDiscounts"));
+const AdminAuditLogs = lazy(() => import("./pages/admin/AdminAuditLogs"));
+
 import { io } from "socket.io-client";
 import { API_URL } from "./config/api";
 import { isTokenExpired, handleForceLogout } from "./utils/auth";
+
+function PageLoader() {
+  return (
+    <div
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "center",
+        justifyContent: "center",
+        minHeight: "50vh",
+        gap: "14px",
+        color: "var(--color-text-secondary)"
+      }}
+    >
+      <div
+        style={{
+          width: "38px",
+          height: "38px",
+          border: "3px solid var(--color-border)",
+          borderTopColor: "var(--color-primary)",
+          borderRadius: "50%",
+          animation: "pageSpin 0.75s linear infinite"
+        }}
+      />
+      <span style={{ fontSize: "0.85rem", fontWeight: "600" }}>Loading...</span>
+      <style>{`@keyframes pageSpin { to { transform: rotate(360deg); } }`}</style>
+    </div>
+  );
+}
 
 function App() {
   useEffect(() => {
@@ -84,7 +117,8 @@ function App() {
       <ThemeProvider>
         <WishlistProvider>
           <CartProvider>
-          <Routes>
+          <Suspense fallback={<PageLoader />}>
+            <Routes>
             {/* Public Storefront Routes */}
             <Route path="/" element={<Navigate to="/products" replace />} />
             <Route path="/products" element={<Products />} />
@@ -212,7 +246,8 @@ function App() {
 
             {/* Catch-all fallback */}
             <Route path="*" element={<Navigate to="/products" replace />} />
-          </Routes>
+            </Routes>
+          </Suspense>
         </CartProvider>
       </WishlistProvider>
     </ThemeProvider>
