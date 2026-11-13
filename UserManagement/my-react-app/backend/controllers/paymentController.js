@@ -5,6 +5,7 @@ const razorpayService = require("../services/razorpayService");
 const { generateInvoiceHtml } = require("../utils/invoiceGenerator");
 const sendEmail = require("../utils/sendEmail");
 const { logAuditEvent } = require("../utils/logger");
+const websocketService = require("../services/websocketService");
 
 let activeOrderRepo = new OrderRepository();
 let activeProductRepo = new ProductRepository();
@@ -338,13 +339,13 @@ exports.verifyRazorpayPayment = async (req, res) => {
       }
 
       const io = req.app.get("io");
-      if (io) {
-        io.to(`order_${updated._id}`).emit("orderStatusUpdated", {
-          orderId: updated._id,
-          status: updated.status,
-          paymentStatus: updated.paymentStatus
-        });
-      }
+      const statusPayload = {
+        orderId: updated._id,
+        status: updated.status,
+        paymentStatus: updated.paymentStatus
+      };
+      websocketService.broadcastToAdmins("orderStatusUpdated", statusPayload, io);
+      websocketService.broadcastToUser(updated.userId, "orderStatusUpdated", statusPayload, io);
     }
 
     return res.status(200).json({

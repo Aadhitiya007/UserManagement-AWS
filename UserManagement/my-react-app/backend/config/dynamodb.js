@@ -40,7 +40,8 @@ const TABLE_NAMES = {
   USERS: process.env.DYNAMODB_USERS_TABLE || "UserManagementAWS-Users",
   PRODUCTS: process.env.DYNAMODB_PRODUCTS_TABLE || "UserManagementAWS-Products",
   ORDERS: process.env.DYNAMODB_ORDERS_TABLE || "UserManagementAWS-Orders",
-  COUPONS: process.env.DYNAMODB_COUPONS_TABLE || "UserManagementAWS-Coupons"
+  COUPONS: process.env.DYNAMODB_COUPONS_TABLE || "UserManagementAWS-Coupons",
+  WS_CONNECTIONS: process.env.DYNAMODB_WS_CONNECTIONS_TABLE || "UserManagementAWS-WebSocketConnections"
 };
 
 module.exports = {

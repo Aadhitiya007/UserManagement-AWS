@@ -7,6 +7,7 @@ import PageHeader from "../../components/ui/PageHeader";
 import Badge from "../../components/ui/Badge";
 import { StatSkeleton } from "../../components/ui/LoadingSkeleton";
 import { API_URL } from "../../config/api";
+import { useRealtime } from "../../utils/useRealtime";
 import {
   DollarSign,
   ShoppingBag,
@@ -44,16 +45,16 @@ function AdminDashboard() {
 
   useEffect(() => {
     fetchAllDashboardData();
-
-    // Real-time resilience on serverless (AWS Lambda):
-    // MicroVM containers freeze between requests, so automatic quiet background sync keeps
-    // orders, inventory alerts, and revenue stats continuously live without UI disruption.
-    const syncInterval = setInterval(() => {
-      fetchAllDashboardData(true);
-    }, 25000);
-
-    return () => clearInterval(syncInterval);
   }, []);
+
+  // Universal real-time sync via AWS WebSocket API, Socket.io, or quiet fallback
+  useRealtime(
+    {
+      newOrder: () => fetchAllDashboardData(true),
+      orderStatusUpdated: () => fetchAllDashboardData(true)
+    },
+    () => fetchAllDashboardData(true)
+  );
 
   async function fetchAllDashboardData(isBackgroundSync = false) {
     const token = localStorage.getItem("token");

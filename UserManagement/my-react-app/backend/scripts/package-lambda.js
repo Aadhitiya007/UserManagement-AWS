@@ -16,6 +16,7 @@ function buildLambdaPackage() {
 
   const items = [
     "lambda.js",
+    "websocketHandler.js",
     "server.js",
     "package.json",
     "config",
