@@ -1,5 +1,4 @@
-import { useState, useEffect } from "react";
-import { io } from "socket.io-client";
+import { useState, useEffect, useCallback } from "react";
 import Navbar from "../../components/Navbar";
 import AdminSidebar from "../../components/AdminSidebar";
 import PageHeader from "../../components/ui/PageHeader";
@@ -7,6 +6,7 @@ import Badge from "../../components/ui/Badge";
 import EmptyState from "../../components/ui/EmptyState";
 import { TableRowSkeleton } from "../../components/ui/LoadingSkeleton";
 import { API_URL } from "../../config/api";
+import { useRealtime } from "../../utils/useRealtime";
 import {
   ShoppingBag,
   Search,
@@ -26,51 +26,7 @@ function AdminOrders() {
   const [statusFilter, setStatusFilter] = useState("ALL");
   const [currentPage, setCurrentPage] = useState(1);
 
-  useEffect(() => {
-    fetchOrders();
-
-    const token = localStorage.getItem("token");
-    if (!token) return;
-
-    // Serverless (AWS Lambda / API Gateway) fallback:
-    // In serverless microVM environments where Socket.io connections are isolated across
-    // Lambda instances, gracefully fall back to quiet background interval polling.
-    if (API_URL && API_URL.includes("execute-api")) {
-      const pollInterval = setInterval(() => {
-        fetchOrdersQuietly();
-      }, 20000);
-      return () => clearInterval(pollInterval);
-    }
-
-    // Stateful Node/Docker/EC2 environments: use persistent Socket.io connection
-    const socket = io(API_URL, {
-      auth: { token }
-    });
-    socket.emit("joinAdminRoom");
-
-    socket.on("orderStatusUpdated", (data) => {
-      if (data.cancelled) {
-        setOrders((prevOrders) =>
-          prevOrders.filter((ord) => (ord._id || ord.id) !== data.orderId)
-        );
-        return;
-      }
-
-      setOrders((prevOrders) =>
-        prevOrders.map((ord) =>
-          (ord._id || ord.id) === data.orderId
-            ? { ...ord, status: data.status, paymentStatus: data.paymentStatus || ord.paymentStatus }
-            : ord
-        )
-      );
-    });
-
-    return () => {
-      socket.disconnect();
-    };
-  }, []);
-
-  async function fetchOrdersQuietly() {
+  const fetchOrdersQuietly = useCallback(async () => {
     const token = localStorage.getItem("token");
     if (!token) return;
     try {
@@ -84,7 +40,40 @@ function AdminOrders() {
     } catch {
       // Quiet background polling ignores network blips without disrupting UI
     }
-  }
+  }, []);
+
+  useEffect(() => {
+    fetchOrders();
+  }, []);
+
+  useRealtime(
+    {
+      orderStatusUpdated: (data) => {
+        if (data.cancelled) {
+          setOrders((prevOrders) =>
+            prevOrders.filter((ord) => (ord._id || ord.id) !== data.orderId)
+          );
+          return;
+        }
+
+        setOrders((prevOrders) =>
+          prevOrders.map((ord) =>
+            (ord._id || ord.id) === data.orderId
+              ? { ...ord, status: data.status, paymentStatus: data.paymentStatus || ord.paymentStatus }
+              : ord
+          )
+        );
+      },
+      newOrder: (newOrderData) => {
+        setOrders((prevOrders) => {
+          const exists = prevOrders.some((o) => (o._id || o.id) === (newOrderData._id || newOrderData.orderId));
+          if (exists) return prevOrders;
+          return [newOrderData, ...prevOrders];
+        });
+      }
+    },
+    fetchOrdersQuietly
+  );
 
   async function fetchOrders() {
     const token = localStorage.getItem("token");

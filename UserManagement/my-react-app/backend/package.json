@@ -8,6 +8,7 @@
     "test": "node tests/s3-image.test.js && node tests/dynamodb-repositories.test.js && node tests/user-dynamodb-controller.test.js && node tests/product-dynamodb-controller.test.js && node tests/order-dynamodb-controller.test.js && node tests/coupon-dynamodb.test.js && node tests/password-reset-dynamodb.test.js && node tests/email-verification-dynamodb.test.js && node tests/razorpay-payment.test.js && node tests/lambda-handler.test.js",
     "package:lambda": "node scripts/package-lambda.js",
     "create:orders-table": "node scripts/create-orders-table.js",
+    "create:ws-table": "node scripts/create-ws-table.js",
     "seed:admin": "node scripts/seed-admin.js",
     "seed:products": "node scripts/seed-products.js",
     "check:dynamo": "node scripts/inspect-dynamodb.js",
@@ -17,6 +18,7 @@
   "keywords": [],
   "type": "commonjs",
   "dependencies": {
+    "@aws-sdk/client-apigatewaymanagementapi": "^3.1168.0",
     "@aws-sdk/client-dynamodb": "^3.1158.0",
     "@aws-sdk/client-s3": "^3.1147.0",
     "@aws-sdk/lib-dynamodb": "^3.1158.0",

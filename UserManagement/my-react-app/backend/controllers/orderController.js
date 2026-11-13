@@ -4,6 +4,7 @@ const UserRepository = require("../repositories/userRepository");
 const CouponRepository = require("../repositories/couponRepository");
 const { logAuditEvent } = require("../utils/logger");
 const { generateInvoiceHtml } = require("../utils/invoiceGenerator");
+const websocketService = require("../services/websocketService");
 
 let activeOrderRepo = new OrderRepository();
 let activeProductRepo = new ProductRepository();
@@ -56,20 +57,19 @@ exports.createOrder = async (req, res) => {
       couponCode: couponCode || null
     });
 
+    const orderPayload = {
+      orderId: createdOrder._id,
+      userId: createdOrder.userId,
+      userName: createdOrder.userName,
+      totalAmount: createdOrder.totalAmount,
+      status: createdOrder.status,
+      paymentStatus: createdOrder.paymentStatus,
+      createdAt: createdOrder.createdAt
+    };
+
     const io = req.app.get("io");
-    if (io) {
-      const orderPayload = {
-        orderId: createdOrder._id,
-        userId: createdOrder.userId,
-        userName: createdOrder.userName,
-        totalAmount: createdOrder.totalAmount,
-        status: createdOrder.status,
-        paymentStatus: createdOrder.paymentStatus,
-        createdAt: createdOrder.createdAt
-      };
-      io.to("admins").emit("newOrder", orderPayload);
-      io.to(`user_${createdOrder.userId}`).emit("newOrder", orderPayload);
-    }
+    websocketService.broadcastToAdmins("newOrder", orderPayload, io);
+    websocketService.broadcastToUser(createdOrder.userId, "newOrder", orderPayload, io);
 
     logAuditEvent({
       category: "ORDER",
@@ -142,16 +142,14 @@ exports.updateOrderStatus = async (req, res) => {
     const updatedOrder = await activeOrderRepo.updateStatusWithStockRestoration(id, status);
 
     const io = req.app.get("io");
-    if (io && updatedOrder) {
+    if (updatedOrder) {
       const payload = {
         orderId: updatedOrder._id,
         status: updatedOrder.status,
         paymentStatus: updatedOrder.paymentStatus
       };
-      io.to(`order_${updatedOrder._id}`)
-        .to(`user_${updatedOrder.userId}`)
-        .to("admins")
-        .emit("orderStatusUpdated", payload);
+      websocketService.broadcastToAdmins("orderStatusUpdated", payload, io);
+      websocketService.broadcastToUser(updatedOrder.userId, "orderStatusUpdated", payload, io);
     }
 
     return res.json({
