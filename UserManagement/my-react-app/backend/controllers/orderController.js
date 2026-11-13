@@ -68,8 +68,14 @@ exports.createOrder = async (req, res) => {
     };
 
     const io = req.app.get("io");
-    websocketService.broadcastToAdmins("newOrder", orderPayload, io);
-    websocketService.broadcastToUser(createdOrder.userId, "newOrder", orderPayload, io);
+    try {
+      await Promise.allSettled([
+        websocketService.broadcastToAdmins("newOrder", orderPayload, io),
+        websocketService.broadcastToUser(createdOrder.userId, "newOrder", orderPayload, io)
+      ]);
+    } catch (wsErr) {
+      console.warn("[OrderController] WebSocket broadcast error:", wsErr.message);
+    }
 
     logAuditEvent({
       category: "ORDER",
@@ -148,8 +154,17 @@ exports.updateOrderStatus = async (req, res) => {
         status: updatedOrder.status,
         paymentStatus: updatedOrder.paymentStatus
       };
-      websocketService.broadcastToAdmins("orderStatusUpdated", payload, io);
-      websocketService.broadcastToUser(updatedOrder.userId, "orderStatusUpdated", payload, io);
+      
+      // MUST await all WebSocket dispatches before returning res.json,
+      // otherwise Lambda freezes the microVM before network packets reach API Gateway!
+      try {
+        await Promise.allSettled([
+          websocketService.broadcastToAdmins("orderStatusUpdated", payload, io),
+          websocketService.broadcastToUser(updatedOrder.userId, "orderStatusUpdated", payload, io)
+        ]);
+      } catch (wsErr) {
+        console.warn("[OrderController] WebSocket broadcast error:", wsErr.message);
+      }
     }
 
     return res.json({

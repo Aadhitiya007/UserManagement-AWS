@@ -28,9 +28,10 @@ class WebSocketRepository {
           Item: item
         })
       );
+      console.log(`[WebSocketRepo] ✓ Saved connection ${connectionId} for user ${userId} (${role}) to table ${this.tableName}`);
       return item;
     } catch (err) {
-      console.warn(`[WebSocketRepo] Failed to save connection ${connectionId}:`, err.message);
+      console.error(`[WebSocketRepo] ✗ FAILED to save connection ${connectionId} to table ${this.tableName}:`, err.message);
       return null;
     }
   }

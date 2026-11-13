@@ -41,10 +41,14 @@ const websocketService = {
 
     // 2. Broadcast via AWS API Gateway WebSocket Management API
     const client = getApiClient();
-    if (!client) return;
+    if (!client) {
+      console.warn("[WebSocketService] Warning: WEBSOCKET_ENDPOINT not configured in environment; skipping AWS WS broadcast to admins.");
+      return;
+    }
 
     try {
       const adminConnections = await activeWsRepo.getAdminConnections();
+      console.log(`[WebSocketService] Broadcasting "${eventType}" to admins. Found ${adminConnections?.length || 0} active connection(s).`);
       if (!adminConnections || adminConnections.length === 0) return;
 
       const messageData = Buffer.from(
@@ -64,12 +68,14 @@ const websocketService = {
                 Data: messageData
               })
             );
+            console.log(`[WebSocketService] ✓ Broadcast "${eventType}" sent to admin connection: ${connectionId}`);
           } catch (postErr) {
             // HTTP 410 Gone means the client has disconnected; purge stale connection
             if (postErr.name === "GoneException" || postErr.statusCode === 410 || postErr.$metadata?.httpStatusCode === 410) {
+              console.log(`[WebSocketService] Pruning disconnected admin connection: ${connectionId}`);
               await activeWsRepo.deleteConnection(connectionId);
             } else {
-              console.warn(`[WebSocketService] Failed to post to connection ${connectionId}:`, postErr.message);
+              console.warn(`[WebSocketService] ✗ Failed to post to admin connection ${connectionId}:`, postErr.message);
             }
           }
         })
@@ -96,10 +102,14 @@ const websocketService = {
 
     // 2. AWS WebSocket emit
     const client = getApiClient();
-    if (!client) return;
+    if (!client) {
+      console.warn("[WebSocketService] Warning: WEBSOCKET_ENDPOINT not configured in environment; skipping AWS WS broadcast to user.");
+      return;
+    }
 
     try {
       const userConnections = await activeWsRepo.getUserConnections(userId);
+      console.log(`[WebSocketService] Broadcasting "${eventType}" to user ${userId}. Found ${userConnections?.length || 0} active connection(s).`);
       if (!userConnections || userConnections.length === 0) return;
 
       const messageData = Buffer.from(
@@ -119,9 +129,13 @@ const websocketService = {
                 Data: messageData
               })
             );
+            console.log(`[WebSocketService] ✓ Broadcast "${eventType}" sent to user connection: ${connectionId}`);
           } catch (postErr) {
             if (postErr.name === "GoneException" || postErr.statusCode === 410 || postErr.$metadata?.httpStatusCode === 410) {
+              console.log(`[WebSocketService] Pruning disconnected user connection: ${connectionId}`);
               await activeWsRepo.deleteConnection(connectionId);
+            } else {
+              console.warn(`[WebSocketService] ✗ Failed to post to user connection ${connectionId}:`, postErr.message);
             }
           }
         })
