@@ -344,8 +344,14 @@ exports.verifyRazorpayPayment = async (req, res) => {
         status: updated.status,
         paymentStatus: updated.paymentStatus
       };
-      websocketService.broadcastToAdmins("orderStatusUpdated", statusPayload, io);
-      websocketService.broadcastToUser(updated.userId, "orderStatusUpdated", statusPayload, io);
+      try {
+        await Promise.allSettled([
+          websocketService.broadcastToAdmins("orderStatusUpdated", statusPayload, io),
+          websocketService.broadcastToUser(updated.userId, "orderStatusUpdated", statusPayload, io)
+        ]);
+      } catch (wsErr) {
+        console.warn("[PaymentController] WebSocket broadcast error:", wsErr.message);
+      }
     }
 
     return res.status(200).json({

@@ -601,9 +601,7 @@ function Cart() {
                   </span>
                 </button>
 
-                <p style={{ textAlign: "center", fontSize: "0.78rem", color: "var(--color-text-muted)", marginTop: "14px", marginBottom: 0 }}>
-                  🔒 256-bit Encrypted Checkout with Razorpay & SES Invoice
-                </p>
+                
               </div>
             </div>
           </div>
