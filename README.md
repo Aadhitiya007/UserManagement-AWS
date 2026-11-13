@@ -1,182 +1,226 @@
-# 🛒 Shopiee - AWS Serverless E-Commerce & Real-Time WebSocket Architecture
+# 🛒 Shopiee - Serverless E-Commerce Platform
 
-A production-ready, cloud-native Full-Stack E-Commerce web application built with **React 19**, **Node.js**, **AWS Lambda**, **Amazon DynamoDB**, **Amazon S3**, and **AWS API Gateway WebSockets** for sub-100ms real-time status updates across customer and administrative interfaces.
+A modern, cloud-native full-stack e-commerce web application featuring real-time bidirectional order updates, secure cloud media storage, role-based administration, and an event-driven serverless architecture.
 
 ---
 
-## 🏗️ Architecture Overview
+## 📖 Project Overview
 
-The application utilizes an event-driven serverless architecture on AWS, combined with a modern React SPA deployed on Vercel.
+**Shopiee** is an e-commerce platform designed to scale effortlessly on serverless cloud infrastructure:
+* **Customer Experience**: Instant search, responsive product catalog, coupon promotions, cart management, checkout with payment gateway simulation, and real-time order status tracking.
+* **Admin Dashboard**: Live metrics, product catalog management with private S3 image uploads, coupon code controls, and real-time order lifecycle tracking.
+* **Serverless Real-Time Updates**: Eliminates client polling by utilizing WebSocket connections managed via AWS API Gateway and DynamoDB session tracking.
+
+---
+
+## 🛠️ Tech Stack
+
+* **Frontend**: React 19, Vite, Tailwind CSS, Lucide Icons
+* **Backend API**: Node.js, Express, Serverless-Express wrapper
+* **Cloud & Serverless**:
+  * **AWS Lambda**: Scalable, pay-per-use execution environment
+  * **AWS API Gateway**: HTTP API for REST routing & WebSocket API for real-time events
+  * **Amazon DynamoDB**: Low-latency NoSQL database for users, products, orders, coupons, and active socket sessions
+  * **Amazon S3**: Private cloud bucket for secure product assets with presigned URL generation
+* **Hosting**: Vercel (Frontend SPA) + AWS Serverless (Backend & Database)
+
+---
+
+## 🏛️ System Architecture
 
 ```mermaid
 flowchart TD
-    subgraph Client ["Frontend (Vercel SPA)"]
-        UserBrowser["Customer Client (/orders)"]
-        AdminBrowser["Admin Client (/admin/orders)"]
+    subgraph Client ["Client Layer"]
+        User["Customer Portal (/orders)"]
+        Admin["Admin Dashboard (/admin/orders)"]
     end
 
-    subgraph APIGW ["AWS API Gateway (ap-south-2)"]
-        HttpApi["HTTP API v2 (dhnhsv6v46)<br/>REST Endpoints"]
-        WsApi["WebSocket API (gtkkj8w5gb)<br/>wss://.../production"]
+    subgraph Gateway ["API Gateway Layer"]
+        HttpApi["REST HTTP API<br/>(/api/*)"]
+        WsApi["WebSocket API<br/>($connect, $disconnect)"]
     end
 
-    subgraph Compute ["AWS Lambda"]
-        BackendLambda["UserManagementAWS-Backend<br/>Node.js 20.x Runtime"]
+    subgraph Compute ["Compute Layer"]
+        Lambda["AWS Lambda Function<br/>(Unified Express & WebSocket Handler)"]
     end
 
-    subgraph Storage ["AWS Cloud Services"]
-        DynamoWS[("DynamoDB<br/>UserManagementAWS-WebSocketConnections<br/>(24h TTL)")]
-        DynamoData[("DynamoDB Tables<br/>Users, Orders, Products, Coupons")]
-        S3Bucket[("Amazon S3<br/>Private Bucket (Presigned URLs)")]
+    subgraph Data ["Data & Storage Layer"]
+        DynamoDB[("Amazon DynamoDB<br/>Orders, Users, Products, Coupons")]
+        WsSessions[("Amazon DynamoDB<br/>WebSocket Sessions (TTL)")]
+        S3[("Amazon S3<br/>Product Images (Private)")]
     end
 
-    UserBrowser -- "1. wss://.../production?token=JWT" --> WsApi
-    WsApi -- "$connect / $disconnect" --> BackendLambda
-    BackendLambda -- "Save / Delete connectionId & userId" --> DynamoWS
+    User -- "Connects wss://" --> WsApi
+    Admin -- "Connects wss://" --> WsApi
+    WsApi -- "Route event" --> Lambda
+    Lambda -- "Store / Remove session" --> WsSessions
 
-    AdminBrowser -- "2. PUT /api/orders/:id/status" --> HttpApi
-    HttpApi -- "Invoke" --> BackendLambda
-    BackendLambda -- "Update Order" --> DynamoData
-    BackendLambda -- "Query user connectionId" --> DynamoWS
-    BackendLambda -- "3. PostToConnectionCommand<br/>(Awaited Promise)" --> WsApi
-    WsApi -- "4. Real-time push: orderStatusUpdated" --> UserBrowser
+    Admin -- "Update status (REST)" --> HttpApi
+    HttpApi -- "Invoke" --> Lambda
+    Lambda -- "Save status" --> DynamoDB
+    Lambda -- "Query active connections" --> WsSessions
+    Lambda -- "PostToConnection" --> WsApi
+    WsApi -- "Live push" --> User
 ```
 
 ---
 
-## ⚡ Real-Time WebSocket Engine
+## 📂 Project Structure
 
-The real-time subsystem replaces traditional polling with bidirectional, serverless WebSocket push notifications.
-
-### 1. Connection Lifecycle
-* **Connect (`$connect`)**: When a user or administrator opens the web application, `useRealtime.js` initiates a WebSocket handshake to `wss://gtkkj8w5gb.execute-api.ap-south-2.amazonaws.com/production?token=<JWT>`. The Lambda handler verifies the JWT, extracts `userId` and `role`, and saves the ephemeral `connectionId` into `UserManagementAWS-WebSocketConnections` with a 24-hour TTL.
-* **Disconnect (`$disconnect`)**: When a browser tab is closed or navigated away from, API Gateway triggers `$disconnect`, and Lambda removes the connection record from DynamoDB.
-* **Keepalive Ping**: The client transmits an `{ action: "ping" }` heartbeat every 5 minutes to prevent AWS API Gateway's 10-minute idle connection timeout.
-* **Stale Connection Cleanup (HTTP 410 Gone)**: If a client terminates unexpectedly, `@aws-sdk/client-apigatewaymanagementapi` catches `GoneException` (HTTP 410) upon message dispatch and purges the stale connection from DynamoDB automatically.
-
-### 2. Event Types
-| Event Name | Direction | Payload | Description |
-| :--- | :--- | :--- | :--- |
-| `orderStatusUpdated` | Server $\rightarrow$ Client | `{ orderId, status, paymentStatus }` | Dispatched to specific user connection when an order advances lifecycle (Processing $\rightarrow$ Shipped $\rightarrow$ Delivered). |
-| `newOrder` | Server $\rightarrow$ Admins | `{ orderId, totalAmount, status, ... }` | Broadcast to all active admin and manager connections upon order placement. |
-
----
-
-## ⚙️ Environment Variables
-
-### Frontend (`my-react-app/frontend/.env.production` / Vercel)
-| Variable | Value / Format | Purpose |
-| :--- | :--- | :--- |
-| `VITE_API_URL` | `https://dhnhsv6v46.execute-api.ap-south-2.amazonaws.com` | Base REST HTTP API Gateway endpoint. |
-| `VITE_WEBSOCKET_URL` | `wss://gtkkj8w5gb.execute-api.ap-south-2.amazonaws.com/production` | API Gateway WebSocket URL (must start with `wss://`, no trailing slash). |
-
-### Backend (`UserManagementAWS-Backend` Lambda)
-| Variable | Correct Value | Critical Notes |
-| :--- | :--- | :--- |
-| `WEBSOCKET_ENDPOINT` | `https://gtkkj8w5gb.execute-api.ap-south-2.amazonaws.com/production` | **Do NOT append `/@connections`**. The AWS SDK appends this automatically. |
-| `AWS_REGION` | `ap-south-2` | Target AWS deployment region. |
-| `JWT_SECRET` | `your_production_jwt_secret` | Used to decode user tokens during `$connect`. |
-| `DYNAMODB_WS_CONNECTIONS_TABLE` | `UserManagementAWS-WebSocketConnections` | Stores active socket sessions. |
-| `DYNAMODB_ORDERS_TABLE` | `UserManagementAWS-Orders` | Stores customer orders. |
-| `DYNAMODB_USERS_TABLE` | `UserManagementAWS-Users` | Stores user profiles and credentials. |
-| `DYNAMODB_PRODUCTS_TABLE` | `UserManagementAWS-Products` | Stores product catalog and stock levels. |
-| `S3_BUCKET_NAME` | `usermanagementaws-products-private-...` | Private bucket for catalog images. |
-
----
-
-## 🔒 IAM Permissions (Lambda Execution Role)
-
-Ensure `UserManagementAWS-Lambda-ExecutionRole` includes permissions for API Gateway management and DynamoDB:
-
-```json
-{
-  "Version": "2012-10-17",
-  "Statement": [
-    {
-      "Sid": "WebSocketManageConnections",
-      "Effect": "Allow",
-      "Action": [
-        "execute-api:ManageConnections"
-      ],
-      "Resource": "arn:aws:execute-api:ap-south-2:*:gtkkj8w5gb/*"
-    },
-    {
-      "Sid": "DynamoDBWebSocketTableAccess",
-      "Effect": "Allow",
-      "Action": [
-        "dynamodb:PutItem",
-        "dynamodb:GetItem",
-        "dynamodb:DeleteItem",
-        "dynamodb:Scan",
-        "dynamodb:Query"
-      ],
-      "Resource": "arn:aws:dynamodb:ap-south-2:*:table/UserManagementAWS-WebSocketConnections*"
-    }
-  ]
-}
+```text
+UserManagement-AWS/
+├── README.md
+└── UserManagement/
+    └── my-react-app/
+        ├── backend/
+        │   ├── config/              # DynamoDB & AWS SDK clients
+        │   ├── controllers/         # Business logic (auth, orders, products, payments)
+        │   ├── middleware/          # JWT authentication, role checks, image upload
+        │   ├── repositories/        # DynamoDB data access objects & queries
+        │   ├── routes/              # Express API route declarations
+        │   ├── scripts/             # Table creation & packaging utilities
+        │   ├── services/            # WebSocket broadcasting, email, S3 presigning
+        │   ├── lambda.js            # Unified AWS Lambda entrypoint
+        │   ├── server.js            # Express application configuration
+        │   ├── websocketHandler.js  # WebSocket $connect, $disconnect handlers
+        │   └── package.json
+        └── frontend/
+            ├── public/              # Static assets
+            ├── src/
+            │   ├── components/      # Reusable UI components & layouts
+            │   ├── config/          # API & WebSocket client configuration
+            │   ├── context/         # Auth & Cart state contexts
+            │   ├── pages/           # Storefront & Admin views
+            │   └── utils/           # Custom hooks (e.g., useRealtime)
+            ├── index.html
+            ├── package.json
+            └── vite.config.js
 ```
 
 ---
 
-## 📦 Packaging and Deployment
+## 🚀 Setup & Local Development
 
-### 1. Build Backend Lambda Archive
-To compile production runtime dependencies and build `lambda-deployment.zip`:
+### Prerequisites
+* **Node.js**: v18 or higher
+* **npm**: v9 or higher
+* An **AWS Account** (if deploying cloud infrastructure)
 
+### 1. Clone the Repository
 ```bash
-cd UserManagement/my-react-app/backend
-npm run package:lambda
+git clone https://github.com/<your-username>/<your-repo-name>.git
+cd <your-repo-name>/UserManagement/my-react-app
 ```
 
-* Output artifact: `UserManagement/my-react-app/backend/lambda-deployment.zip` (~8.3 MB)
-* In **AWS Lambda Console** $\rightarrow$ `UserManagementAWS-Backend` $\rightarrow$ **Code** $\rightarrow$ **Upload from .zip** $\rightarrow$ Select `lambda-deployment.zip` $\rightarrow$ **Save**.
+### 2. Backend Setup
+1. Navigate to the backend directory and install dependencies:
+   ```bash
+   cd backend
+   npm install
+   ```
 
-### 2. Deploy Frontend to Vercel
-```bash
-git add .
-git commit -m "feat: real-time serverless websocket order tracking"
-git push origin master
-```
-Vercel automatically triggers a build and promotes the deployment.
+2. Create a `.env` file in `backend/`:
+   ```env
+   PORT=5000
+   NODE_ENV=development
+   JWT_SECRET=your_super_secret_jwt_key
+   
+   # AWS Configuration
+   AWS_REGION=your-aws-region
+   AWS_ACCESS_KEY_ID=your_access_key_id
+   AWS_SECRET_ACCESS_KEY=your_secret_access_key
+   
+   # DynamoDB Table Names
+   DYNAMODB_USERS_TABLE=UserManagementAWS-Users
+   DYNAMODB_PRODUCTS_TABLE=UserManagementAWS-Products
+   DYNAMODB_ORDERS_TABLE=UserManagementAWS-Orders
+   DYNAMODB_COUPONS_TABLE=UserManagementAWS-Coupons
+   DYNAMODB_WS_CONNECTIONS_TABLE=UserManagementAWS-WebSocketConnections
+   
+   # S3 & WebSocket Configuration
+   S3_BUCKET_NAME=your-s3-bucket-name
+   WEBSOCKET_ENDPOINT=https://<your-ws-api-id>.execute-api.<region>.amazonaws.com/<stage>
+   ```
+
+3. Run backend locally:
+   ```bash
+   npm run dev
+   ```
+
+### 3. Frontend Setup
+1. In a new terminal, navigate to the frontend directory:
+   ```bash
+   cd ../frontend
+   npm install
+   ```
+
+2. Create a `.env` file in `frontend/`:
+   ```env
+   VITE_API_URL=http://localhost:5000
+   VITE_WEBSOCKET_URL=http://localhost:5000
+   ```
+
+3. Start the Vite development server:
+   ```bash
+   npm run dev
+   ```
+   Open `http://localhost:5173` in your browser.
 
 ---
 
-## 🛠️ Key Architectural Traps & Solutions
+## ☁️ Cloud Deployment Guide
 
-### 1. The Lambda MicroVM Freeze on Unawaited Promises
-* **Problem**: In Node.js Express controllers running inside AWS Lambda with `context.callbackWaitsForEmptyEventLoop = false`, calling `res.json(...)` immediately suspends the container. If `websocketService.broadcastToUser(...)` is invoked without `await`, the outbound network socket is frozen mid-flight and the message is never transmitted.
-* **Solution**: All WebSocket dispatch operations in [`orderController.js`](file:///c:/Users/x512d/UserManagement-AWS/UserManagement/my-react-app/backend/controllers/orderController.js) and [`paymentController.js`](file:///c:/Users/x512d/UserManagement-AWS/UserManagement/my-react-app/backend/controllers/paymentController.js) are explicitly synchronized with `await Promise.allSettled([...])` before returning HTTP responses.
+### 1. Backend (AWS Lambda & API Gateway)
 
-### 2. EventBridge Cron vs. ServerlessExpress (`ee.on is not a function`)
-* **Problem**: When a scheduled EventBridge ping (`KeepUserManagementBackendWarm`) triggered the Lambda function, `@codegenie/serverless-express` attempted to parse the event as an HTTP socket stream, crashing with `TypeError: ee.on is not a function`.
-* **Solution**: [`lambda.js`](file:///c:/Users/x512d/UserManagement-AWS/UserManagement/my-react-app/backend/lambda.js) inspects incoming payloads first. Non-HTTP and cron events immediately return `{ statusCode: 200, body: "Warm" }` and are bypassed from Express.
+1. **Package the Lambda Deployment Artifact**:
+   Inside `UserManagement/my-react-app/backend`, build the production bundle:
+   ```bash
+   npm run package:lambda
+   ```
+   This generates `lambda-deployment.zip` containing all production runtime dependencies.
 
-### 3. The `/@connections` Endpoint Doubling
-* **Problem**: Setting `WEBSOCKET_ENDPOINT` to `https://.../production/@connections` causes `@aws-sdk/client-apigatewaymanagementapi` to request `/@connections/@connections/{id}`, triggering `404 Not Found`.
-* **Solution**: [`websocketService.js`](file:///c:/Users/x512d/UserManagement-AWS/UserManagement/my-react-app/backend/services/websocketService.js) strips any trailing `/@connections` automatically:
-  ```javascript
-  const endpoint = rawEndpoint
-    .trim()
-    .replace(/^wss:\/\//, "https://")
-    .replace(/\/@connections\/?$/, "")
-    .replace(/\/+$/, "");
-  ```
+2. **Deploy to AWS Lambda**:
+   * Create or open your Lambda function (Node.js 20.x runtime).
+   * Upload `lambda-deployment.zip` via **Upload from $\rightarrow$ .zip file**.
+   * Configure your environment variables in Lambda Configuration:
+     * `JWT_SECRET`
+     * `AWS_REGION`
+     * `WEBSOCKET_ENDPOINT` *(format: `https://<api-id>.execute-api.<region>.amazonaws.com/<stage>` without `/@connections`)*
+     * Table and Bucket references.
+
+3. **Configure API Gateway Triggers**:
+   * **HTTP API**: Route all traffic (`$default` or `/{proxy+}`) to the Lambda function.
+   * **WebSocket API**: Route `$connect`, `$disconnect`, and `$default` routes to the same Lambda function.
+
+4. **IAM Role Permissions**:
+   Ensure the Lambda execution role has policies granting:
+   * Read/Write on DynamoDB tables.
+   * Put/Delete on the private S3 bucket.
+   * `execute-api:ManageConnections` on the WebSocket API ARN.
+
+### 2. Frontend (Vercel)
+
+1. Push your code to your Git repository.
+2. Link the repository to your **Vercel** project with the root directory set to `UserManagement/my-react-app/frontend`.
+3. Add the production environment variables in Vercel Project Settings:
+   ```text
+   VITE_API_URL = https://<your-http-api-id>.execute-api.<region>.amazonaws.com
+   VITE_WEBSOCKET_URL = wss://<your-ws-api-id>.execute-api.<region>.amazonaws.com/<stage>
+   ```
+4. Deploy the application.
 
 ---
 
-## 🧪 Verification & Diagnostics
+## 🔄 Real-Time Event Flow
 
-1. **Verify Connection in Browser**:
-   * Open the customer interface `/orders` $\rightarrow$ Press **F12** $\rightarrow$ **Console**.
-   * Verify log: `[AWS WebSocket] Connected to real-time gateway`.
-   * Under **Network** $\rightarrow$ **WS**, verify status code `101 Switching Protocols`.
+1. When a client visits `/orders`, `useRealtime` establishes a connection to the WebSocket gateway using their JWT token.
+2. The Lambda `$connect` route authenticates the token and registers the connection ID in DynamoDB with a 24-hour TTL.
+3. When an administrator modifies an order status, the backend performs the database update and initiates an awaited `PostToConnectionCommand` to the customer's active connection.
+4. The customer's UI receives the event payload and updates the order status badge in real time without refreshing.
+5. When the user navigates away or closes the tab, `$disconnect` cleans up the session from DynamoDB.
 
-2. **Verify Session in DynamoDB**:
-   * In AWS DynamoDB Console, open `UserManagementAWS-WebSocketConnections`.
-   * Click **Run (Scan)** while the customer tab is open.
-   * Verify an active item exists with `connectionId`, `userId`, `role: "user"`, and `ttl`.
+---
 
-3. **Verify Real-Time Dispatch**:
-   * With the customer `/orders` page visible, update an order to `Delivered` in `/admin/orders`.
-   * The status badge on the customer screen updates instantly to `Delivered` without page refresh.
+## 📄 License
 
+This project is licensed under the MIT License.
