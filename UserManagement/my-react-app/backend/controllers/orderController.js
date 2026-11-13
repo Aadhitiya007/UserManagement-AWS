@@ -111,7 +111,15 @@ exports.getUserOrders = async (req, res) => {
  */
 exports.getAllOrders = async (req, res) => {
   try {
-    const result = await activeOrderRepo.listAllOrders({ status: req.query.status });
+    const limit = req.query.limit ? Math.min(parseInt(req.query.limit, 10), 100) : 50;
+    const result = await activeOrderRepo.listAllOrders({
+      status: req.query.status,
+      limit,
+      nextCursor: req.query.nextCursor || req.query.cursor
+    });
+    if (req.query.paginate === "true" || req.query.cursor || req.query.nextCursor) {
+      return res.json(result);
+    }
     return res.json(result.orders);
   } catch (error) {
     res.status(500).json({ message: error.message });

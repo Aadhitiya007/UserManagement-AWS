@@ -1,11 +1,29 @@
 const jwt = require("jsonwebtoken");
 
+const parseCookies = (cookieHeader) => {
+  if (!cookieHeader) return {};
+  return cookieHeader.split(";").reduce((res, c) => {
+    const parts = c.trim().split("=");
+    const key = parts[0];
+    const val = parts.slice(1).join("=");
+    if (key && val) res[key] = decodeURIComponent(val);
+    return res;
+  }, {});
+};
+
 const verifyToken = (req, res, next) => {
-  const authHeader = req.headers.authorization;
+  const authHeader = req.headers?.authorization;
   let token = null;
 
   if (authHeader && authHeader.startsWith("Bearer ")) {
     token = authHeader.split(" ")[1];
+  } else if (req.cookies && req.cookies.token) {
+    token = req.cookies.token;
+  } else if (req.headers && req.headers.cookie) {
+    const cookies = parseCookies(req.headers.cookie);
+    if (cookies.token) {
+      token = cookies.token;
+    }
   } else if (req.query && req.query.token) {
     token = req.query.token;
   }
@@ -27,4 +45,4 @@ const verifyToken = (req, res, next) => {
   }
 };
 
-module.exports = { verifyToken };
+module.exports = { verifyToken, parseCookies };

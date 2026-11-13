@@ -30,8 +30,19 @@ function AdminOrders() {
     fetchOrders();
 
     const token = localStorage.getItem("token");
-    if (!token || (API_URL && API_URL.includes("execute-api"))) return;
+    if (!token) return;
 
+    // Serverless (AWS Lambda / API Gateway) fallback:
+    // In serverless microVM environments where Socket.io connections are isolated across
+    // Lambda instances, gracefully fall back to quiet background interval polling.
+    if (API_URL && API_URL.includes("execute-api")) {
+      const pollInterval = setInterval(() => {
+        fetchOrdersQuietly();
+      }, 20000);
+      return () => clearInterval(pollInterval);
+    }
+
+    // Stateful Node/Docker/EC2 environments: use persistent Socket.io connection
     const socket = io(API_URL, {
       auth: { token }
     });
@@ -58,6 +69,22 @@ function AdminOrders() {
       socket.disconnect();
     };
   }, []);
+
+  async function fetchOrdersQuietly() {
+    const token = localStorage.getItem("token");
+    if (!token) return;
+    try {
+      const res = await fetch(`${API_URL}/api/orders`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setOrders(Array.isArray(data) ? data : data.orders || []);
+      }
+    } catch {
+      // Quiet background polling ignores network blips without disrupting UI
+    }
+  }
 
   async function fetchOrders() {
     const token = localStorage.getItem("token");
