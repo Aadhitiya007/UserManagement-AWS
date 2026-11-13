@@ -27,8 +27,8 @@ const serverlessExpressInstance = serverlessExpress({
 exports.handler = async (event, context) => {
   context.callbackWaitsForEmptyEventLoop = false;
 
-  // Detect WebSocket event from AWS API Gateway WebSocket API
-  if (event?.requestContext?.routeKey || event?.requestContext?.connectionId) {
+  // Detect WebSocket event from AWS API Gateway WebSocket API (always carries connectionId)
+  if (event?.requestContext?.connectionId) {
     return websocketHandler.handler(event, context);
   }
 
