@@ -1,6 +1,5 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
-import { io } from "socket.io-client";
 import { 
   Package, 
   Search, 
@@ -12,6 +11,7 @@ import {
 } from "lucide-react";
 import Navbar from "../components/Navbar";
 import { API_URL } from "../config/api";
+import { useRealtime } from "../utils/useRealtime";
 import Badge from "../components/ui/Badge";
 import EmptyState from "../components/ui/EmptyState";
 import LoadingSkeleton from "../components/ui/LoadingSkeleton";
@@ -26,6 +26,31 @@ function Orders() {
   const [searchTerm, setSearchTerm] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
 
+  const fetchMyOrders = useCallback(async (isQuiet = false) => {
+    const token = localStorage.getItem("token");
+    if (!token) {
+      if (!isQuiet) setLoading(false);
+      return;
+    }
+
+    try {
+      if (!isQuiet) {
+        setLoading(true);
+        setError("");
+      }
+      const res = await fetch(`${API_URL}/api/orders/my-orders`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message || "Failed to fetch orders");
+      setOrders(Array.isArray(data) ? data : (data.orders || []));
+    } catch (err) {
+      if (!isQuiet) setError(err.message);
+    } finally {
+      if (!isQuiet) setLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     const storedUser = JSON.parse(localStorage.getItem("user") || "{}");
     if (storedUser.role === "admin" || storedUser.role === "manager") {
@@ -34,66 +59,29 @@ function Orders() {
     }
 
     fetchMyOrders();
+  }, [fetchMyOrders, navigate]);
 
-    const token = localStorage.getItem("token");
-    if (!token) return;
+  useRealtime(
+    {
+      orderStatusUpdated: (data) => {
+        if (data.cancelled) {
+          setOrders((currentOrders) =>
+            currentOrders.filter((order) => (order._id || order.id) !== data.orderId)
+          );
+          return;
+        }
 
-    // Serverless AWS API Gateway does not host long-polling Socket.IO servers
-    if (API_URL && API_URL.includes("execute-api")) return;
-
-    const socket = io(API_URL, {
-      auth: { token },
-      transports: ["websocket"]
-    });
-
-    const userId = storedUser.id || storedUser._id;
-    if (userId) {
-      socket.emit("joinUserRoom", userId);
-    }
-
-    socket.on("orderStatusUpdated", (data) => {
-      if (data.cancelled) {
         setOrders((currentOrders) =>
-          currentOrders.filter((order) => order._id !== data.orderId)
+          currentOrders.map((order) =>
+            (order._id || order.id) === data.orderId
+              ? { ...order, status: data.status, paymentStatus: data.paymentStatus || order.paymentStatus }
+              : order
+          )
         );
-        return;
       }
-
-      setOrders((currentOrders) =>
-        currentOrders.map((order) =>
-          order._id === data.orderId
-            ? { ...order, status: data.status, paymentStatus: data.paymentStatus || order.paymentStatus }
-            : order
-        )
-      );
-    });
-
-    return () => {
-      socket.disconnect();
-    };
-  }, []);
-
-  async function fetchMyOrders() {
-    const token = localStorage.getItem("token");
-    if (!token) {
-      setLoading(false);
-      return;
-    }
-
-    try {
-      setLoading(true);
-      const res = await fetch(`${API_URL}/api/orders/my-orders`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.message || "Failed to fetch orders");
-      setOrders(Array.isArray(data) ? data : (data.orders || []));
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setLoading(false);
-    }
-  }
+    },
+    () => fetchMyOrders(true)
+  );
 
   function renderStatusBadge(status) {
     switch (status) {
