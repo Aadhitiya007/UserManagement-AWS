@@ -9,9 +9,13 @@ function getApiClient() {
   if (!rawEndpoint) return null;
 
   if (!apiClient) {
-    // AWS API Gateway Management API requires the https:// format without trailing slash:
+    // AWS API Gateway Management API requires the https:// format without /@connections or trailing slash:
     // e.g. https://<api-id>.execute-api.<region>.amazonaws.com/<stage>
-    const endpoint = rawEndpoint.replace(/^wss:\/\//, "https://").replace(/\/+$/, "");
+    const endpoint = rawEndpoint
+      .trim()
+      .replace(/^wss:\/\//, "https://")
+      .replace(/\/@connections\/?$/, "")
+      .replace(/\/+$/, "");
     apiClient = new ApiGatewayManagementApiClient({
       endpoint,
       region: process.env.AWS_REGION || "ap-south-2"
