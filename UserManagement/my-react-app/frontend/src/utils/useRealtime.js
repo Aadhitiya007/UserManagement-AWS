@@ -34,7 +34,9 @@ export function useRealtime(handlers = {}, fallbackPollFn = null) {
       function connectAwsWebSocket() {
         if (isCleanedUp) return;
         try {
-          const wsUrl = `${WEBSOCKET_URL}?token=${encodeURIComponent(token)}`;
+          const cleanWsUrl = WEBSOCKET_URL.replace(/\/+$/, "");
+          const wsUrl = `${cleanWsUrl}?token=${encodeURIComponent(token)}`;
+          console.log("[AWS WebSocket] Connecting to:", cleanWsUrl);
           const ws = new WebSocket(wsUrl);
           wsRef.current = ws;
 
@@ -43,6 +45,7 @@ export function useRealtime(handlers = {}, fallbackPollFn = null) {
           };
 
           ws.onmessage = (event) => {
+            console.log("[AWS WebSocket] Received frame:", event.data);
             try {
               const payload = JSON.parse(event.data);
               const eventType = payload.type || payload.action;
