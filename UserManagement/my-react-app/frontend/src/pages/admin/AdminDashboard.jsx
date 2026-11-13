@@ -44,15 +44,26 @@ function AdminDashboard() {
 
   useEffect(() => {
     fetchAllDashboardData();
+
+    // Real-time resilience on serverless (AWS Lambda):
+    // MicroVM containers freeze between requests, so automatic quiet background sync keeps
+    // orders, inventory alerts, and revenue stats continuously live without UI disruption.
+    const syncInterval = setInterval(() => {
+      fetchAllDashboardData(true);
+    }, 25000);
+
+    return () => clearInterval(syncInterval);
   }, []);
 
-  async function fetchAllDashboardData() {
+  async function fetchAllDashboardData(isBackgroundSync = false) {
     const token = localStorage.getItem("token");
     if (!token) return;
 
     try {
-      setLoading(true);
-      setError("");
+      if (!isBackgroundSync) {
+        setLoading(true);
+        setError("");
+      }
 
       const headers = { Authorization: `Bearer ${token}` };
 
@@ -124,9 +135,13 @@ function AdminDashboard() {
         setRecentAuditLogs(Array.isArray(data.logs) ? data.logs.slice(0, 6) : []);
       }
     } catch (err) {
-      setError(err.message);
+      if (!isBackgroundSync) {
+        setError(err.message);
+      }
     } finally {
-      setLoading(false);
+      if (!isBackgroundSync) {
+        setLoading(false);
+      }
     }
   }
 

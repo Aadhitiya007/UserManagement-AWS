@@ -98,6 +98,16 @@ exports.register = async (req, res) => {
         details: { message: "New customer registered", email: user.email }
       });
 
+      if (typeof res.cookie === "function") {
+        res.cookie("token", token, {
+          httpOnly: true,
+          secure: process.env.NODE_ENV === "production",
+          sameSite: "lax",
+          path: "/",
+          maxAge: 7 * 24 * 60 * 60 * 1000
+        });
+      }
+
       return res.status(201).json({
         message: "User registered successfully",
         verificationSent: true,
@@ -178,6 +188,16 @@ exports.login = async (req, res) => {
       getJwtSecret(),
       { expiresIn: "7d" }
     );
+
+    if (typeof res.cookie === "function") {
+      res.cookie("token", token, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === "production",
+        sameSite: "lax",
+        path: "/",
+        maxAge: 7 * 24 * 60 * 60 * 1000
+      });
+    }
 
     return res.json({
       message: "Login successful",
@@ -270,6 +290,16 @@ exports.staffLogin = async (req, res) => {
       { expiresIn: "7d" }
     );
 
+    if (typeof res.cookie === "function") {
+      res.cookie("token", token, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === "production",
+        sameSite: "lax",
+        path: "/",
+        maxAge: 7 * 24 * 60 * 60 * 1000
+      });
+    }
+
     return res.json({
       message: "Staff authentication successful.",
       token,
@@ -312,6 +342,21 @@ exports.logout = async (req, res) => {
       } catch (_) {
         // Token expired or invalid, still log logout
       }
+    } else if (req.cookies?.token || req.headers?.cookie) {
+      try {
+        const cToken = req.cookies?.token || (req.headers.cookie && req.headers.cookie.split(";").map(s => s.trim()).find(s => s.startsWith("token="))?.split("=")[1]);
+        if (cToken) {
+          const decoded = jwt.verify(decodeURIComponent(cToken), getJwtSecret());
+          actor = {
+            userId: decoded.id || "anonymous",
+            email: decoded.email || "anonymous",
+            role: decoded.role || "user",
+            ip: req.ip || req.connection?.remoteAddress
+          };
+        }
+      } catch (_) {
+        // Token expired or invalid
+      }
     }
 
     logAuditEvent({
@@ -322,6 +367,15 @@ exports.logout = async (req, res) => {
       target: { type: "User", id: actor.userId, name: actor.email },
       details: { message: "User logged out" }
     });
+
+    if (typeof res.clearCookie === "function") {
+      res.clearCookie("token", {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === "production",
+        sameSite: "lax",
+        path: "/"
+      });
+    }
 
     return res.json({ success: true, message: "Logged out successfully" });
   } catch (error) {

@@ -633,7 +633,8 @@ class OrderRepository {
     const ordersResult = await this.docClient.send(
       new ScanCommand({
         TableName: this.tableNames.ORDERS,
-        ProjectionExpression: "totalAmount, paymentStatus"
+        ProjectionExpression: "totalAmount, paymentStatus",
+        Limit: 1000
       })
     );
 
