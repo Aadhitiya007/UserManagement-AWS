@@ -46,6 +46,8 @@ class OrderRepository {
       paymentMethod: item.paymentMethod || "Card",
       paymentDetails: item.paymentDetails || {},
       paymentAttempts: Array.isArray(item.paymentAttempts) ? item.paymentAttempts : [],
+      shippingAddress: item.shippingAddress || null,
+      expiresAt: item.expiresAt !== undefined ? Number(item.expiresAt) : null,
       createdAt: item.createdAt,
       updatedAt: item.updatedAt
     };
@@ -64,7 +66,7 @@ class OrderRepository {
     return this._formatOrder(result.Item);
   }
 
-  async createOrderWithStockDeduction({ userId, userName, userEmail, rawProducts, productRepo, paymentMethod = "Card", couponCode = null, couponRepo = null }) {
+  async createOrderWithStockDeduction({ userId, userName, userEmail, rawProducts, productRepo, paymentMethod = "Card", couponCode = null, couponRepo = null, shippingAddress = null }) {
     if (!Array.isArray(rawProducts) || rawProducts.length === 0) {
       throw new Error("Cart is empty. Products array is required.");
     }
@@ -197,6 +199,8 @@ class OrderRepository {
       paymentMethod: "Card",
       paymentDetails: {},
       paymentAttempts: [],
+      shippingAddress: shippingAddress || null,
+      expiresAt: Math.floor(Date.now() / 1000) + (20 * 60), // 20-minute reservation TTL
       createdAt: now,
       updatedAt: now
     };
@@ -667,6 +671,80 @@ class OrderRepository {
     const pendingOrders = allOrders.filter((o) => o.paymentStatus === "Pending" || o.paymentStatus !== "Paid").length;
 
     return { totalOrders, totalRevenue, paidOrders, pendingOrders };
+  }
+
+  /**
+   * Update shipping address on pending order before payment
+   */
+  async updateShippingAddress(orderId, userId, shippingAddress) {
+    const order = await this.findById(orderId);
+    if (!order) {
+      const err = new Error("Order not found");
+      err.statusCode = 404;
+      throw err;
+    }
+
+    if (userId && order.userId.toString() !== userId.toString()) {
+      const err = new Error("Access denied. Not your order.");
+      err.statusCode = 403;
+      throw err;
+    }
+
+    if (order.status !== "Pending" || order.paymentStatus === "Paid") {
+      const err = new Error("Cannot update shipping address after payment has completed.");
+      err.statusCode = 400;
+      throw err;
+    }
+
+    await this.docClient.send(
+      new UpdateCommand({
+        TableName: this.tableNames.ORDERS,
+        Key: { orderId },
+        UpdateExpression: "SET shippingAddress = :addr, updatedAt = :now",
+        ExpressionAttributeValues: {
+          ":addr": shippingAddress,
+          ":now": new Date().toISOString()
+        }
+      })
+    );
+
+    return this.findById(orderId);
+  }
+
+  /**
+   * Reclaim abandoned pending orders exceeding the 20-minute reservation TTL
+   */
+  async reclaimExpiredPendingOrders() {
+    const nowEpoch = Math.floor(Date.now() / 1000);
+    try {
+      const scanResult = await this.docClient.send(
+        new ScanCommand({
+          TableName: this.tableNames.ORDERS,
+          FilterExpression: "paymentStatus = :pending AND attribute_exists(expiresAt) AND expiresAt <= :now",
+          ExpressionAttributeValues: {
+            ":pending": "Pending",
+            ":now": nowEpoch
+          }
+        })
+      );
+
+      const expiredList = scanResult.Items || [];
+      let reclaimedCount = 0;
+
+      for (const item of expiredList) {
+        try {
+          await this.cancelPendingPayment(item.orderId, null);
+          reclaimedCount++;
+        } catch (err) {
+          console.warn(`Failed to auto-reclaim expired order ${item.orderId}:`, err.message);
+        }
+      }
+
+      return { reclaimedCount, totalFound: expiredList.length };
+    } catch (err) {
+      console.warn("reclaimExpiredPendingOrders warning:", err.message);
+      return { reclaimedCount: 0, totalFound: 0, error: err.message };
+    }
   }
 }
 

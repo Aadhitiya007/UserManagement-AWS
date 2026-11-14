@@ -9,7 +9,9 @@ const {
   getAllOrders,
   updateOrderStatus,
   getAdminStats,
-  getOrderInvoice
+  getOrderInvoice,
+  updateOrderAddress,
+  reclaimExpiredOrders
 } = require("../controllers/orderController");
 
 const orderLimiter = rateLimit({
@@ -20,10 +22,12 @@ const orderLimiter = rateLimit({
   legacyHeaders: false
 });
 
+router.post("/reclaim-expired", reclaimExpiredOrders);
 router.post("/", orderLimiter, verifyToken, createOrder);
 router.get("/my-orders", verifyToken, getUserOrders);
 router.get("/", verifyToken, requireStaff, getAllOrders);
 router.get("/stats", verifyToken, requireStaff, getAdminStats);
+router.put("/:id/address", verifyToken, updateOrderAddress);
 router.put("/:id/status", verifyToken, requireStaff, updateOrderStatus);
 router.get("/:id/invoice", verifyToken, getOrderInvoice);
 
