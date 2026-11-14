@@ -1,8 +1,14 @@
 import { useState, useEffect, useRef } from "react";
-import { Sparkles, X, Send, Bot, RefreshCw, ShoppingBag, ArrowRight } from "lucide-react";
+import { Sparkles, X, Send, Bot, RefreshCw } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import ProductCardMini from "./ProductCardMini";
 import { sendChatMessage } from "../../services/aiService";
+
+let messageSeq = 0;
+function nextMessageId(prefix) {
+  messageSeq += 1;
+  return `${prefix}-${messageSeq}`;
+}
 
 const QUICK_PROMPTS = [
   "🎧 Wireless headphones under ₹3,000",
@@ -44,7 +50,7 @@ export default function AIChatDrawer() {
     if (!query || loading) return;
 
     const userMessage = {
-      id: `user-${Date.now()}`,
+      id: nextMessageId("user"),
       role: "user",
       text: query
     };
@@ -62,18 +68,18 @@ export default function AIChatDrawer() {
       const data = await sendChatMessage(query, history);
 
       const assistantMessage = {
-        id: `ai-${Date.now()}`,
+        id: nextMessageId("ai"),
         role: "assistant",
         text: data.reply || "Here is what I found:",
         products: data.products || []
       };
 
       setMessages((prev) => [...prev, assistantMessage]);
-    } catch (err) {
+    } catch {
       setMessages((prev) => [
         ...prev,
         {
-          id: `err-${Date.now()}`,
+          id: nextMessageId("err"),
           role: "assistant",
           text: "⚠️ Sorry, I ran into an issue connecting to the AI service. Please try asking again in a moment.",
           products: []
