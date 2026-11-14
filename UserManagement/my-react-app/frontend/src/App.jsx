@@ -4,6 +4,7 @@ import { ThemeProvider } from "./context/ThemeContext";
 import { CartProvider } from "./context/CartContext";
 import { WishlistProvider } from "./context/WishlistContext";
 import ProtectedRoute from "./components/ProtectedRoute";
+import AIChatDrawer from "./components/AIChat/AIChatDrawer";
 
 // Immediate eager-loaded storefront landing page for instant First Contentful Paint
 import Products from "./pages/Products";
@@ -248,6 +249,7 @@ function App() {
             <Route path="*" element={<Navigate to="/products" replace />} />
             </Routes>
           </Suspense>
+          <AIChatDrawer />
         </CartProvider>
       </WishlistProvider>
     </ThemeProvider>
