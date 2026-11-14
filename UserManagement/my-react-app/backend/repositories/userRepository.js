@@ -634,6 +634,10 @@ class UserRepository {
       pinCode: String(pinCode).trim(),
       type: ["Home", "Work", "Other"].includes(type) ? type : "Home",
       isDefault: makeDefault,
+      location: addressData.location && typeof addressData.location === "object" ? {
+        lat: Number(addressData.location.lat),
+        lng: Number(addressData.location.lng)
+      } : null,
       createdAt: new Date().toISOString()
     };
 
@@ -684,6 +688,7 @@ class UserRepository {
           state: updateData.state !== undefined ? String(updateData.state).trim() : a.state,
           pinCode: updateData.pinCode !== undefined ? String(updateData.pinCode).trim() : a.pinCode,
           type: updateData.type !== undefined ? updateData.type : a.type,
+          location: updateData.location !== undefined ? updateData.location : (a.location || null),
           isDefault: makeDefault ? true : (updateData.isDefault === false ? false : a.isDefault),
           updatedAt: new Date().toISOString()
         };
