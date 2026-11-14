@@ -318,6 +318,8 @@ const toolExecutors = {
           rating: p.rating,
           imageUrl: p.imageUrl || p.image,
           warranty: p.warranty,
+          variants: p.variants || [],
+          variantAttributes: p.variantAttributes || [],
           description: (p.description || "").slice(0, 160)
         }))
       };
@@ -348,7 +350,9 @@ const toolExecutors = {
         reviewsCount: enriched.reviewsCount,
         warranty: enriched.warranty,
         description: enriched.description,
-        imageUrl: enriched.imageUrl || enriched.image
+        imageUrl: enriched.imageUrl || enriched.image,
+        variants: enriched.variants || [],
+        variantAttributes: enriched.variantAttributes || []
       };
     } catch (error) {
       console.warn("[AI Tools] getProductDetails error:", error.message);
@@ -357,7 +361,7 @@ const toolExecutors = {
   },
 
   /**
-   * Strictly user-scoped order tracking: never accesses another customer's data
+   * Strictly user-scoped order tracking: only retrieves confirmed, paid orders for the active user
    */
   getMyOrders: async (args, user) => {
     const userId = user?.id || user?._id || user?.userId;
@@ -368,22 +372,35 @@ const toolExecutors = {
     }
 
     try {
-      const orderResult = await activeOrderRepo.findByUserId(userId, { limit: 5 });
-      const orders = orderResult.orders || [];
+      const orderResult = await activeOrderRepo.findByUserId(userId, { limit: 15 });
+      const rawOrders = orderResult.orders || [];
 
-      if (orders.length === 0) {
+      // E-Commerce Filter: Exclude incomplete checkout attempts / unpaid drafts
+      const confirmedOrders = rawOrders.filter((o) => {
+        if (!o) return false;
+        const isPaid = (o.paymentStatus || "").toLowerCase() === "paid";
+        const isCod = (o.paymentMethod || "").toLowerCase() === "cashondelivery";
+        const isFulfillmentActive = ["processing", "shipped", "delivered"].includes(
+          (o.status || "").toLowerCase()
+        );
+        if (o.paymentStatus === undefined && o.status === undefined) return true;
+        return isPaid || isCod || isFulfillmentActive;
+      });
+
+      if (confirmedOrders.length === 0) {
         return {
           count: 0,
-          message: "You haven't placed any orders yet. Would you like to explore our trending products?"
+          orders: [],
+          message: "You don't have any confirmed orders yet. Would you like to explore our trending products?"
         };
       }
 
       return {
-        count: orders.length,
-        orders: orders.slice(0, 3).map((o) => ({
+        count: confirmedOrders.length,
+        orders: confirmedOrders.slice(0, 3).map((o) => ({
           orderId: o.orderId || o._id,
-          status: o.status,
-          paymentStatus: o.paymentStatus,
+          status: o.status || "Processing",
+          paymentStatus: o.paymentStatus || "Paid",
           totalAmount: o.totalAmount,
           createdAt: o.createdAt,
           itemCount: o.products?.length || 0,

@@ -13,6 +13,7 @@ const {
 const s3 = require("../config/s3");
 const fs = require("fs");
 const path = require("path");
+const { seedCatalog } = require("../scripts/seed-variant-catalog");
 
 let activeProductRepo = new ProductRepository();
 let activeOrderRepo = new OrderRepository();
@@ -335,6 +336,20 @@ exports.createProduct = async (req, res) => {
       imageValue = req.body.image.trim();
     }
 
+    let variants = [];
+    if (typeof req.body.variants === "string") {
+      try { variants = JSON.parse(req.body.variants); } catch (_) { variants = []; }
+    } else if (Array.isArray(req.body.variants)) {
+      variants = req.body.variants;
+    }
+
+    let variantAttributes = [];
+    if (typeof req.body.variantAttributes === "string") {
+      try { variantAttributes = JSON.parse(req.body.variantAttributes); } catch (_) { variantAttributes = []; }
+    } else if (Array.isArray(req.body.variantAttributes)) {
+      variantAttributes = req.body.variantAttributes;
+    }
+
     const createdProduct = await activeProductRepo.create({
       name,
       description: description || "",
@@ -344,6 +359,8 @@ exports.createProduct = async (req, res) => {
       mrp: parsedMrp,
       warranty: warranty || "1 Year Manufacturer Warranty",
       image: imageValue,
+      variants,
+      variantAttributes,
       discount: req.body.discount || { isActive: false, value: 0 }
     });
 
@@ -373,6 +390,17 @@ exports.updateProduct = async (req, res) => {
     if (updates.price !== undefined) updates.price = Number(updates.price);
     if (updates.stock !== undefined) updates.stock = Number(updates.stock);
     if (updates.mrp !== undefined) updates.mrp = Number(updates.mrp);
+
+    if (updates.variants !== undefined) {
+      if (typeof updates.variants === "string") {
+        try { updates.variants = JSON.parse(updates.variants); } catch (_) { updates.variants = []; }
+      }
+    }
+    if (updates.variantAttributes !== undefined) {
+      if (typeof updates.variantAttributes === "string") {
+        try { updates.variantAttributes = JSON.parse(updates.variantAttributes); } catch (_) { updates.variantAttributes = []; }
+      }
+    }
 
     if (req.file) {
       if (existing.image) {
@@ -516,6 +544,22 @@ exports.deleteProductReview = async (req, res) => {
     });
   } catch (error) {
     res.status(error.statusCode || error.status || 500).json({ message: error.message });
+  }
+};
+
+/**
+ * 10. Seed / Reset Variant Catalog (Admin Utility)
+ * POST /api/products/seed-catalog
+ */
+exports.seedCatalogController = async (req, res) => {
+  try {
+    const result = await seedCatalog(activeProductRepo);
+    return res.json({
+      message: `Successfully purged ${result.deleted} old products and seeded ${result.seeded} variant products.`,
+      ...result
+    });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
   }
 };
 
