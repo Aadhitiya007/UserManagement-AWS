@@ -440,7 +440,28 @@ function Payment() {
                       )}
                     </div>
                     <div>{order.shippingAddress.street}, {order.shippingAddress.city}, {order.shippingAddress.state} - {order.shippingAddress.pinCode}</div>
-                    <div style={{ color: "#94a3b8", fontSize: "0.8rem" }}>Phone: {order.shippingAddress.phone}</div>
+                    <div style={{ color: "#94a3b8", fontSize: "0.8rem", marginTop: "2px" }}>
+                      Phone: {order.shippingAddress.phone}
+                    </div>
+                    {order.shippingAddress.location && (
+                      <a
+                        href={`https://www.google.com/maps?q=${order.shippingAddress.location.lat},${order.shippingAddress.location.lng}`}
+                        target="_blank"
+                        rel="noreferrer"
+                        style={{
+                          display: "inline-flex",
+                          alignItems: "center",
+                          gap: "4px",
+                          fontSize: "0.78rem",
+                          color: "#818cf8",
+                          fontWeight: "600",
+                          marginTop: "6px",
+                          textDecoration: "underline"
+                        }}
+                      >
+                        📍 Open Pinned Location on Map ↗
+                      </a>
+                    )}
                   </div>
                 </div>
               )}

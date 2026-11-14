@@ -5,6 +5,7 @@ import { useCart } from "../context/CartContext";
 import Badge from "../components/ui/Badge";
 import EmptyState from "../components/ui/EmptyState";
 import { API_URL } from "../config/api";
+import MapLocationPicker from "../components/MapLocationPicker";
 import {
   ShoppingBag,
   Trash2,
@@ -133,6 +134,17 @@ function Cart() {
     } finally {
       setSavingAddress(false);
     }
+  }
+
+  function handleMapAddressResolved({ street, city, state, pinCode, location }) {
+    setAddressFormData((prev) => ({
+      ...prev,
+      street: street || prev.street,
+      city: city || prev.city,
+      state: state || prev.state,
+      pinCode: pinCode || prev.pinCode,
+      location: location || prev.location
+    }));
   }
 
   const subtotal = cart.reduce((sum, item) => sum + item.price * item.quantity, 0);
@@ -736,21 +748,45 @@ function Cart() {
                           <p style={{ margin: "2px 0 0", fontSize: "0.82rem", color: "var(--color-text-secondary)", lineHeight: "1.4" }}>
                             {addr.street}, {addr.city}, {addr.state} - {addr.pinCode}
                           </p>
-                          <p style={{ margin: "2px 0 0", fontSize: "0.78rem", color: "var(--color-text-muted)" }}>
-                            Phone: {addr.phone}
-                          </p>
+                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "4px" }}>
+                            <span style={{ fontSize: "0.78rem", color: "var(--color-text-muted)" }}>
+                              Phone: {addr.phone}
+                            </span>
+                            {addr.location && (
+                              <a
+                                href={`https://www.google.com/maps?q=${addr.location.lat},${addr.location.lng}`}
+                                target="_blank"
+                                rel="noreferrer"
+                                onClick={(e) => e.stopPropagation()}
+                                style={{
+                                  display: "inline-flex",
+                                  alignItems: "center",
+                                  gap: "3px",
+                                  fontSize: "0.75rem",
+                                  color: "var(--color-primary)",
+                                  fontWeight: "600",
+                                  textDecoration: "underline"
+                                }}
+                              >
+                                <MapPin size={11} /> View on Map ↗
+                              </a>
+                            )}
+                          </div>
                         </div>
                       );
                     })}
                   </div>
                 )}
 
-                {/* Inline Add Address Form */}
+                {/* Inline Add Address Form with Live Map Location Picker */}
                 {showAddressForm && (
                   <form onSubmit={handleSaveNewAddress} style={{ marginTop: addresses.length > 0 ? "14px" : "0", display: "flex", flexDirection: "column", gap: "10px" }}>
                     <div style={{ fontSize: "0.85rem", fontWeight: "700", color: "var(--color-text-primary)", borderBottom: "1px solid var(--color-border)", paddingBottom: "6px" }}>
                       New Shipping Address
                     </div>
+
+                    {/* Interactive Live GPS & Leaflet Map Picker */}
+                    <MapLocationPicker onAddressResolved={handleMapAddressResolved} />
 
                     <input
                       type="text"
