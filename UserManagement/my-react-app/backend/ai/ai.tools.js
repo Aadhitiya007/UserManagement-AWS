@@ -1,7 +1,9 @@
 const ProductRepository = require("../repositories/productRepository");
+const OrderRepository = require("../repositories/orderRepository");
 const { getProductWithImageUrl } = require("../controllers/productController");
 
 let activeProductRepo = new ProductRepository();
+let activeOrderRepo = new OrderRepository();
 
 function setProductRepository(repo) {
   activeProductRepo = repo;
@@ -9,6 +11,14 @@ function setProductRepository(repo) {
 
 function getProductRepository() {
   return activeProductRepo;
+}
+
+function setOrderRepository(repo) {
+  activeOrderRepo = repo;
+}
+
+function getOrderRepository() {
+  return activeOrderRepo;
 }
 
 /**
@@ -147,6 +157,19 @@ const functionDeclarations = [
       },
       required: ["productId"]
     }
+  },
+  {
+    name: "getMyOrders",
+    description: "Retrieve personal order history and delivery tracking status for the currently authenticated customer.",
+    parameters: {
+      type: "OBJECT",
+      properties: {
+        limit: {
+          type: "NUMBER",
+          description: "Maximum number of recent orders to retrieve (default 3)"
+        }
+      }
+    }
   }
 ];
 
@@ -171,7 +194,7 @@ const toolExecutors = {
 
     // If query itself suggests a category (e.g., "headphone" -> Audio)
     if (!category) {
-      const words = cleanedQuery.split(/\s+/);
+      const words = (cleanedQuery || rawQuery).toLowerCase().split(/\s+/);
       for (const w of words) {
         if (CATEGORY_MAP[w]) {
           category = CATEGORY_MAP[w];
@@ -181,53 +204,86 @@ const toolExecutors = {
     }
 
     try {
+      // Fetch up to 100 products from repo to do smart multi-attribute scoring
+      const allRes = await activeProductRepo.list({ limit: 100 });
+      let allItems = allRes.products || [];
+
+      // If repo returned 0 with limit, try with default options
+      if (allItems.length === 0) {
+        const fallbackRes = await activeProductRepo.list({});
+        allItems = fallbackRes.products || [];
+      }
+
       let items = [];
 
-      // Strategy 1: Targeted search with cleaned query and category
-      if (cleanedQuery || category) {
-        const res = await activeProductRepo.list({
-          search: cleanedQuery || undefined,
-          category: category || undefined,
-          limit: 30
+      if (allItems.length > 0) {
+        const queryTokens = (cleanedQuery || rawQuery)
+          .toLowerCase()
+          .split(/\s+/)
+          .filter((t) => t.length >= 2);
+
+        // Score each item based on name, category, description, searchTerms, and budget
+        const scored = allItems.map((prod) => {
+          let relevance = 0;
+          const pName = (prod.name || "").toLowerCase();
+          const pCat = (prod.category || "").toLowerCase();
+          const pDesc = (prod.description || "").toLowerCase();
+          const pTerms = (prod.searchTerms || "").toLowerCase();
+          const pPrice = Number(prod.effectivePrice || prod.price || 0);
+
+          if (category && pCat.includes(category.toLowerCase())) {
+            relevance += 30;
+          }
+
+          for (const token of queryTokens) {
+            if (pName.includes(token)) relevance += 40;
+            else if (pCat.includes(token)) relevance += 20;
+            else if (pTerms.includes(token)) relevance += 15;
+            else if (pDesc.includes(token)) relevance += 8;
+          }
+
+          // Only adjust for budget/stock if product has genuine topical relevance
+          let score = relevance;
+          if (score > 0) {
+            if (maxPrice !== null && !isNaN(maxPrice) && maxPrice > 0) {
+              if (pPrice <= maxPrice) {
+                score += 25;
+              } else {
+                score -= 10;
+              }
+            }
+
+            if (Number(prod.stock || 0) > 0) {
+              score += 5;
+            }
+          }
+
+          return { prod, score, pPrice };
         });
-        items = res.products || [];
-      }
 
-      // Strategy 2: If 0 items and category was inferred, fetch all products in that category
-      if (items.length === 0 && category) {
-        const catRes = await activeProductRepo.list({
-          category,
-          limit: 30
-        });
-        items = catRes.products || [];
-      }
+        // Pick matches with score > 0
+        const matches = scored
+          .filter((s) => s.score > 0)
+          .sort((a, b) => b.score - a.score)
+          .map((s) => s.prod);
 
-      // Strategy 3: If still 0 items, scan catalog and perform in-memory ranking
-      if (items.length === 0) {
-        const allRes = await activeProductRepo.list({ limit: 50 });
-        const allItems = allRes.products || [];
+        if (matches.length > 0) {
+          if (maxPrice !== null && !isNaN(maxPrice) && maxPrice > 0) {
+            const withinBudget = matches.filter((p) => Number(p.effectivePrice || p.price) <= maxPrice);
+            items = withinBudget.length > 0 ? withinBudget : matches;
+          } else {
+            items = matches;
+          }
+        } else if (category) {
+          items = allItems.filter((p) => (p.category || "").toLowerCase() === category.toLowerCase());
+        }
 
-        const keywords = (cleanedQuery || rawQuery).toLowerCase().split(/\s+/).filter(Boolean);
-        items = allItems.filter((p) => {
-          const text = `${p.name} ${p.category} ${p.description}`.toLowerCase();
-          return keywords.some((kw) => text.includes(kw));
-        });
-
-        // If still 0, return all items so user gets relevant suggestions
-        if (items.length === 0 && allItems.length > 0) {
+        // If still empty, return top products
+        if (items.length === 0) {
           items = allItems.slice(0, 6);
         }
       }
 
-      // Filter by maxPrice if specified
-      if (maxPrice !== null && !isNaN(maxPrice) && maxPrice > 0) {
-        const priceFiltered = items.filter((p) => Number(p.effectivePrice || p.price) <= maxPrice);
-        if (priceFiltered.length > 0) {
-          items = priceFiltered;
-        }
-      }
-
-      // Filter by stock if requested
       if (inStockOnly) {
         const inStockItems = items.filter((p) => Number(p.stock) > 0);
         if (inStockItems.length > 0) {
@@ -235,7 +291,7 @@ const toolExecutors = {
         }
       }
 
-      // Cap at top 6 products
+      // Cap at 6 products
       items = items.slice(0, 6);
 
       // Enrich with presigned S3 URLs and discount calculations
@@ -298,6 +354,46 @@ const toolExecutors = {
       console.warn("[AI Tools] getProductDetails error:", error.message);
       return { error: error.message };
     }
+  },
+
+  /**
+   * Strictly user-scoped order tracking: never accesses another customer's data
+   */
+  getMyOrders: async (args, user) => {
+    const userId = user?.id || user?._id || user?.userId;
+    if (!userId) {
+      return {
+        error: "Customer is not logged in. Tell the customer to log in to view and track their orders."
+      };
+    }
+
+    try {
+      const orderResult = await activeOrderRepo.findByUserId(userId, { limit: 5 });
+      const orders = orderResult.orders || [];
+
+      if (orders.length === 0) {
+        return {
+          count: 0,
+          message: "You haven't placed any orders yet. Would you like to explore our trending products?"
+        };
+      }
+
+      return {
+        count: orders.length,
+        orders: orders.slice(0, 3).map((o) => ({
+          orderId: o.orderId || o._id,
+          status: o.status,
+          paymentStatus: o.paymentStatus,
+          totalAmount: o.totalAmount,
+          createdAt: o.createdAt,
+          itemCount: o.products?.length || 0,
+          items: (o.products || []).map((p) => `${p.name || 'Item'} (x${p.quantity || 1})`)
+        }))
+      };
+    } catch (error) {
+      console.warn("[AI Tools] getMyOrders error:", error.message);
+      return { error: "Unable to retrieve order history right now." };
+    }
   }
 };
 
@@ -306,6 +402,8 @@ module.exports = {
   toolExecutors,
   setProductRepository,
   getProductRepository,
+  setOrderRepository,
+  getOrderRepository,
   cleanSearchQuery,
   extractPriceFromQuery
 };

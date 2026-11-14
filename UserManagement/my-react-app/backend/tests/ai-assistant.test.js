@@ -171,7 +171,48 @@ async function runTests() {
     console.log("✓ PASS: processChatMessage successfully extracts intent & products for 'best headphone in 3000'");
   }
 
-  console.log("\n=== AI Assistant Tests: All 9/9 passed ===\n");
+  // 10. Privacy & User Isolation: Unauthenticated order tracking blocked
+  {
+    const guestResult = await toolExecutors.getMyOrders({}, null);
+    assert.ok(guestResult.error, "Guest order tracking must return error");
+    assert.ok(guestResult.error.includes("log in"), "Must prompt customer to log in");
+    console.log("✓ PASS: Privacy guard blocks guest order tracking");
+  }
+
+  // 11. Privacy & User Isolation: User orders are strictly scoped
+  {
+    const { setOrderRepository } = require("../ai/ai.tools");
+    class MockOrderRepo {
+      async findByUserId(userId) {
+        if (userId === "user_alice") {
+          return {
+            orders: [
+              {
+                orderId: "ord_101",
+                status: "Shipped",
+                totalAmount: 2499,
+                products: [{ name: "Wireless ANC Headphones", quantity: 1 }]
+              }
+            ]
+          };
+        }
+        return { orders: [] };
+      }
+    }
+    setOrderRepository(new MockOrderRepo());
+
+    // Alice queries her orders
+    const aliceRes = await toolExecutors.getMyOrders({}, { id: "user_alice", name: "Alice" });
+    assert.strictEqual(aliceRes.count, 1, "Alice should see 1 order");
+    assert.strictEqual(aliceRes.orders[0].orderId, "ord_101");
+
+    // Bob queries his orders -> receives 0 orders, NEVER Alice's order
+    const bobRes = await toolExecutors.getMyOrders({}, { id: "user_bob", name: "Bob" });
+    assert.strictEqual(bobRes.count, 0, "Bob must never see Alice's orders");
+    console.log("✓ PASS: User order isolation guarantees zero cross-user leakage");
+  }
+
+  console.log("\n=== AI Assistant Tests: All 11/11 passed ===\n");
 }
 
 runTests().catch((err) => {
