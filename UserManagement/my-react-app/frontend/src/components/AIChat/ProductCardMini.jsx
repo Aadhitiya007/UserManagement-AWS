@@ -12,9 +12,15 @@ export default function ProductCardMini({ product, onSelect }) {
   const mrp = Number(product.mrp || 0);
   const isOutOfStock = product.stock !== undefined && Number(product.stock) <= 0;
 
+  const hasVariants = Array.isArray(product.variants) && product.variants.length > 0;
+
   const handleAdd = (e) => {
     e.stopPropagation();
     if (isOutOfStock) return;
+    if (hasVariants) {
+      if (onSelect) onSelect(product);
+      return;
+    }
     addToCart(product, 1);
     setAdded(true);
     setTimeout(() => setAdded(false), 1600);

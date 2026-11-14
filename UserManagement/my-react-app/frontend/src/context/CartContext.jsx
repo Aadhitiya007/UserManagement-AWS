@@ -114,48 +114,69 @@ export function CartProvider({ children }) {
     return () => window.removeEventListener("storage", handleStorageChange);
   }, [switchUser]);
 
+  function getCartItemKey(item) {
+    if (item.cartItemId) return item.cartItemId;
+    const baseId = item._id || item.id || item.productId;
+    if (item.selectedVariant?.variantId) {
+      return `${baseId}_${item.selectedVariant.variantId}`;
+    }
+    return baseId;
+  }
+
   function addToCart(product, quantity = 1) {
     if (!product) return;
     const pId = product._id || product.id || product.productId;
-    const availableStock = product.stock !== undefined ? Number(product.stock) : Infinity;
+    const itemKey = product.selectedVariant?.variantId ? `${pId}_${product.selectedVariant.variantId}` : pId;
+    const effectiveStock = product.selectedVariant?.stock !== undefined ? Number(product.selectedVariant.stock) : (product.stock !== undefined ? Number(product.stock) : Infinity);
+    const effectivePrice = product.selectedVariant?.price !== undefined ? Number(product.selectedVariant.price) : Number(product.price);
+    const effectiveImage = product.selectedVariant?.image || product.imageUrl || product.image || "";
 
-    if (availableStock <= 0) {
-      alert(`"${product.name || 'This item'}" is currently out of stock.`);
+    if (effectiveStock <= 0) {
+      const variantLabel = product.selectedVariant?.name ? ` (${product.selectedVariant.name})` : "";
+      alert(`"${(product.name || 'This item') + variantLabel}" is currently out of stock.`);
       return;
     }
 
     setCart((prevCart) => {
-      const existing = prevCart.find((item) => (item._id || item.id || item.productId) === pId);
+      const existing = prevCart.find((item) => getCartItemKey(item) === itemKey);
       if (existing) {
         const nextQty = existing.quantity + quantity;
-        if (nextQty > availableStock) {
-          alert(`Cannot add more than ${availableStock} units of "${product.name || 'this item'}".`);
+        if (nextQty > effectiveStock) {
+          alert(`Cannot add more than ${effectiveStock} units.`);
           return prevCart.map((item) =>
-            (item._id || item.id || item.productId) === pId
-              ? { ...item, ...product, quantity: availableStock }
+            getCartItemKey(item) === itemKey
+              ? { ...item, ...product, cartItemId: itemKey, price: effectivePrice, stock: effectiveStock, quantity: effectiveStock }
               : item
           );
         }
         return prevCart.map((item) =>
-          (item._id || item.id || item.productId) === pId
-            ? { ...item, ...product, quantity: nextQty }
+          getCartItemKey(item) === itemKey
+            ? { ...item, ...product, cartItemId: itemKey, price: effectivePrice, stock: effectiveStock, quantity: nextQty }
             : item
         );
       }
-      const initialQty = Math.min(quantity, availableStock);
-      return [...prevCart, { ...product, quantity: initialQty }];
+      const initialQty = Math.min(quantity, effectiveStock);
+      return [...prevCart, {
+        ...product,
+        cartItemId: itemKey,
+        price: effectivePrice,
+        stock: effectiveStock,
+        image: effectiveImage,
+        selectedVariant: product.selectedVariant || null,
+        quantity: initialQty
+      }];
     });
   }
 
-  function updateQuantity(productId, quantity, maxStock = null) {
+  function updateQuantity(itemId, quantity, maxStock = null) {
     if (quantity <= 0) {
-      removeFromCart(productId);
+      removeFromCart(itemId);
       return;
     }
     setCart((prevCart) =>
       prevCart.map((item) => {
-        const iId = item._id || item.id || item.productId;
-        if (iId === productId) {
+        const key = getCartItemKey(item);
+        if (key === itemId) {
           const limit = maxStock !== null ? Number(maxStock) : (item.stock !== undefined ? Number(item.stock) : Infinity);
           if (quantity > limit) {
             alert(`Stock limit reached (${limit} available).`);
@@ -168,9 +189,9 @@ export function CartProvider({ children }) {
     );
   }
 
-  function removeFromCart(productId) {
+  function removeFromCart(itemId) {
     setCart((prevCart) =>
-      prevCart.filter((item) => (item._id || item.id || item.productId) !== productId)
+      prevCart.filter((item) => getCartItemKey(item) !== itemId)
     );
   }
 

@@ -12,9 +12,11 @@ const {
   checkPurchaseEligibility,
   createProductReview,
   getAllReviews,
-  deleteProductReview
+  deleteProductReview,
+  seedCatalogController
 } = require("../controllers/productController");
 
+router.post("/seed-catalog", verifyToken, requireStaff, seedCatalogController);
 router.get("/reviews/all", verifyToken, requireStaff, getAllReviews);
 router.delete("/:productId/reviews/:reviewId", verifyToken, requireStaff, deleteProductReview);
 

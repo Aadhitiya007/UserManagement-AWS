@@ -94,11 +94,12 @@ function Cart() {
       setError("");
 
       const orderProducts = cart.map((item) => ({
-        productId: item._id || item.id,
+        productId: item._id || item.id || item.productId,
         name: item.name,
         price: item.price,
         quantity: item.quantity,
-        image: item.image || ""
+        image: item.image || "",
+        variant: item.selectedVariant || null
       }));
 
       const res = await fetch(`${API_URL}/api/orders`, {
@@ -295,12 +296,12 @@ function Cart() {
                   </thead>
                   <tbody>
                     {cart.map((item) => {
-                      const id = item._id || item.id;
+                      const itemKey = item.cartItemId || item._id || item.id || item.productId;
                       const imageUrl = item.imageUrl || item.image || "https://placehold.co/100x100?text=No+Image";
                       const isItemOutOfStock = item.stock !== undefined && item.stock <= 0;
 
                       return (
-                        <tr key={id} style={{ opacity: isItemOutOfStock ? 0.6 : 1 }}>
+                        <tr key={itemKey} style={{ opacity: isItemOutOfStock ? 0.6 : 1 }}>
                           <td>
                             <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
                               <img
@@ -322,6 +323,11 @@ function Cart() {
                                 <strong style={{ color: "var(--color-text-primary)", display: "block" }}>
                                   {item.name}
                                 </strong>
+                                {item.selectedVariant && (
+                                  <div style={{ fontSize: "0.8rem", color: "var(--color-primary)", marginTop: "2px", fontWeight: "600" }}>
+                                    {item.selectedVariant.name || Object.entries(item.selectedVariant.attributes || {}).map(([k, v]) => `${k}: ${v}`).join(" • ")}
+                                  </div>
+                                )}
                                 {isItemOutOfStock && <Badge variant="danger">Out of Stock</Badge>}
                               </div>
                             </div>
@@ -335,7 +341,7 @@ function Cart() {
                             <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
                               <button
                                 type="button"
-                                onClick={() => updateQuantity(id, item.quantity - 1)}
+                                onClick={() => updateQuantity(itemKey, item.quantity - 1)}
                                 className="btn btn-secondary btn-sm"
                                 disabled={isItemOutOfStock}
                                 style={{ width: "30px", height: "30px", padding: 0 }}
@@ -347,7 +353,7 @@ function Cart() {
                               </span>
                               <button
                                 type="button"
-                                onClick={() => updateQuantity(id, item.quantity + 1)}
+                                onClick={() => updateQuantity(itemKey, item.quantity + 1)}
                                 className="btn btn-secondary btn-sm"
                                 disabled={isItemOutOfStock || (item.stock && item.quantity >= item.stock)}
                                 style={{ width: "30px", height: "30px", padding: 0 }}
@@ -365,7 +371,7 @@ function Cart() {
                             <div style={{ display: "flex", justifyContent: "flex-end" }}>
                               <button
                                 type="button"
-                                onClick={() => removeFromCart(id)}
+                                onClick={() => removeFromCart(itemKey)}
                                 className="btn btn-ghost btn-sm"
                                 title="Remove Item"
                               >
@@ -383,13 +389,13 @@ function Cart() {
               {/* Mobile Item Cards */}
               <div className="cart-cards-mobile">
                 {cart.map((item) => {
-                  const id = item._id || item.id;
+                  const itemKey = item.cartItemId || item._id || item.id || item.productId;
                   const imageUrl = item.imageUrl || item.image || "https://placehold.co/100x100?text=No+Image";
                   const isItemOutOfStock = item.stock !== undefined && item.stock <= 0;
 
                   return (
                     <div
-                      key={id}
+                      key={itemKey}
                       style={{
                         padding: "14px",
                         backgroundColor: "var(--color-surface)",
@@ -430,6 +436,11 @@ function Cart() {
                         >
                           {item.name}
                         </strong>
+                        {item.selectedVariant && (
+                          <div style={{ fontSize: "0.78rem", color: "var(--color-primary)", marginTop: "2px", fontWeight: "600" }}>
+                            {item.selectedVariant.name || Object.entries(item.selectedVariant.attributes || {}).map(([k, v]) => `${k}: ${v}`).join(" • ")}
+                          </div>
+                        )}
                         <div style={{ display: "flex", alignItems: "baseline", gap: "8px", margin: "4px 0 8px" }}>
                           <span style={{ color: "var(--color-text-primary)", fontWeight: "700", fontSize: "0.95rem" }}>
                             ₹{item.price}
@@ -444,7 +455,7 @@ function Cart() {
                           <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
                             <button
                               type="button"
-                              onClick={() => updateQuantity(id, item.quantity - 1)}
+                              onClick={() => updateQuantity(itemKey, item.quantity - 1)}
                               className="btn btn-secondary btn-sm"
                               disabled={isItemOutOfStock}
                               style={{ width: "32px", height: "32px", padding: 0 }}
@@ -456,7 +467,7 @@ function Cart() {
                             </span>
                             <button
                               type="button"
-                              onClick={() => updateQuantity(id, item.quantity + 1)}
+                              onClick={() => updateQuantity(itemKey, item.quantity + 1)}
                               className="btn btn-secondary btn-sm"
                               disabled={isItemOutOfStock || (item.stock && item.quantity >= item.stock)}
                               style={{ width: "32px", height: "32px", padding: 0 }}
@@ -467,7 +478,7 @@ function Cart() {
 
                           <button
                             type="button"
-                            onClick={() => removeFromCart(id)}
+                            onClick={() => removeFromCart(itemKey)}
                             className="btn btn-ghost btn-sm"
                             title="Remove Item"
                             style={{ padding: "6px 10px", color: "var(--color-error)" }}

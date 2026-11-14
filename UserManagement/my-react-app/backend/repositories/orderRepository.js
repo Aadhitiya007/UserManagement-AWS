@@ -106,13 +106,31 @@ class OrderRepository {
       throw err;
     }
 
+    const recordMap = new Map(productRecords.map((p) => [p.productId, p]));
+
     let originalSubtotal = 0;
     let productDiscountTotal = 0;
     const validatedProducts = [];
-    for (const record of productRecords) {
-      const item = consolidatedMap.get(record.productId);
-      const itemPrice = Number(record.price || 0);
-      const lineTotal = itemPrice * item.quantity;
+    for (const rawItem of rawProducts) {
+      const record = recordMap.get(String(rawItem.productId));
+      if (!record) continue;
+
+      let itemPrice = Number(record.price || 0);
+      let variantInfo = null;
+
+      if (rawItem.variant && typeof rawItem.variant === "object") {
+        variantInfo = {
+          variantId: rawItem.variant.variantId || null,
+          name: rawItem.variant.name || null,
+          attributes: rawItem.variant.attributes || null
+        };
+        if (rawItem.variant.price !== undefined && !isNaN(Number(rawItem.variant.price))) {
+          itemPrice = Number(rawItem.variant.price);
+        }
+      }
+
+      const qty = Number(rawItem.quantity);
+      const lineTotal = itemPrice * qty;
       originalSubtotal += lineTotal;
 
       let effectivePrice = itemPrice;
@@ -124,7 +142,7 @@ class OrderRepository {
         } else {
           itemDiscount = Math.min(discVal, itemPrice);
         }
-        productDiscountTotal += itemDiscount * item.quantity;
+        productDiscountTotal += itemDiscount * qty;
         effectivePrice = Math.max(0, itemPrice - itemDiscount);
       }
 
@@ -133,8 +151,9 @@ class OrderRepository {
         name: record.name,
         price: effectivePrice,
         originalPrice: itemPrice,
-        quantity: item.quantity,
-        image: item.image || record.image || ""
+        quantity: qty,
+        image: rawItem.variant?.image || rawItem.image || record.image || "",
+        variant: variantInfo
       });
     }
 

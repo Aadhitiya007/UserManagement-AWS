@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useParams, Link, useNavigate } from "react-router-dom";
 import Navbar from "../components/Navbar";
 import { useCart } from "../context/CartContext";
@@ -26,6 +26,7 @@ function ProductDetail() {
   const [error, setError] = useState("");
   const [buying, setBuying] = useState(false);
   const [addedFeedback, setAddedFeedback] = useState(false);
+  const [selectedAttributes, setSelectedAttributes] = useState({});
 
   // Verified Buyer & Review States
   const [canReview, setCanReview] = useState(false);
@@ -50,6 +51,15 @@ function ProductDetail() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.message || "Product not found");
       setProduct(data);
+      if (Array.isArray(data.variantAttributes) && data.variantAttributes.length > 0) {
+        const initialAttrs = {};
+        data.variantAttributes.forEach((attr) => {
+          if (Array.isArray(attr.options) && attr.options.length > 0) {
+            initialAttrs[attr.name] = attr.options[0];
+          }
+        });
+        setSelectedAttributes(initialAttrs);
+      }
     } catch (err) {
       setError(err.message);
     } finally {
@@ -117,8 +127,34 @@ function ProductDetail() {
     }
   }
 
+  const activeVariant = useMemo(() => {
+    if (!product || !Array.isArray(product.variants) || product.variants.length === 0) {
+      return null;
+    }
+    return product.variants.find((v) => {
+      if (!v.attributes) return false;
+      return Object.entries(selectedAttributes).every(
+        ([key, val]) => v.attributes[key] === val
+      );
+    }) || product.variants[0];
+  }, [product, selectedAttributes]);
+
+  const currentPrice = activeVariant?.price !== undefined ? Number(activeVariant.price) : Number(product?.price || 0);
+  const currentMRP = activeVariant?.mrp !== undefined ? Number(activeVariant.mrp) : (product?.mrp || Math.round(currentPrice * 1.3));
+  const currentStock = activeVariant?.stock !== undefined ? Number(activeVariant.stock) : Number(product?.stock || 0);
+  const currentImage = activeVariant?.image || product?.imageUrl || product?.image || "https://placehold.co/500x400?text=No+Image";
+
   const handleAddToCart = throttle(() => {
-    addToCart(product, quantity);
+    if (!product) return;
+    const itemToAdd = {
+      ...product,
+      price: currentPrice,
+      mrp: currentMRP,
+      stock: currentStock,
+      image: currentImage,
+      selectedVariant: activeVariant
+    };
+    addToCart(itemToAdd, quantity);
     setAddedFeedback(true);
     setTimeout(() => setAddedFeedback(false), 1600);
   }, 800);
@@ -143,12 +179,13 @@ function ProductDetail() {
             {
               productId: product._id || product.id,
               name: product.name,
-              price: product.price,
+              price: currentPrice,
               quantity: quantity,
-              image: product.image || ""
+              image: currentImage,
+              variant: activeVariant || null
             }
           ],
-          totalAmount: product.price * quantity
+          totalAmount: currentPrice * quantity
         })
       });
       const data = await res.json();
@@ -188,14 +225,14 @@ function ProductDetail() {
   }
 
   const pId = product._id || product.id;
-  const imageUrl = product.imageUrl || product.image || "https://placehold.co/500x400?text=No+Image";
-  const isOutOfStock = product.stock <= 0;
-  const isLowStock = !isOutOfStock && product.stock <= 5;
+  const imageUrl = currentImage;
+  const isOutOfStock = currentStock <= 0;
+  const isLowStock = !isOutOfStock && currentStock <= 5;
   const inWishlist = isInWishlist(pId);
 
-  const originalMRP = product.mrp || Math.round(product.price * 1.3);
-  const discountPercent = originalMRP > product.price
-    ? Math.round(((originalMRP - product.price) / originalMRP) * 100)
+  const originalMRP = currentMRP;
+  const discountPercent = originalMRP > currentPrice
+    ? Math.round(((originalMRP - currentPrice) / originalMRP) * 100)
     : 0;
 
   const reviewsList = product.reviews || [];
@@ -247,7 +284,7 @@ function ProductDetail() {
                 {isOutOfStock ? (
                   <Badge variant="danger">Out of Stock</Badge>
                 ) : isLowStock ? (
-                  <Badge variant="warning">Only {product.stock} units left</Badge>
+                  <Badge variant="warning">Only {currentStock} units left</Badge>
                 ) : discountPercent > 0 ? (
                   <Badge variant="success">{discountPercent}% OFF DROP</Badge>
                 ) : null}
@@ -267,7 +304,7 @@ function ProductDetail() {
                 <div style={{ display: "flex", justifyContent: "space-between", paddingBottom: "8px", borderBottom: "1px solid var(--color-border)" }}>
                   <span style={{ color: "var(--color-text-secondary)" }}>Availability</span>
                   <strong style={{ color: isOutOfStock ? "var(--color-error)" : isLowStock ? "var(--color-warning)" : "var(--color-success)" }}>
-                    {isOutOfStock ? "Out of Stock" : isLowStock ? `Low Stock (Only ${product.stock} remaining)` : "In Stock"}
+                    {isOutOfStock ? "Out of Stock" : isLowStock ? `Low Stock (Only ${currentStock} remaining)` : `In Stock (${currentStock} units)`}
                   </strong>
                 </div>
                 <div style={{ display: "flex", justifyContent: "space-between" }}>
@@ -319,16 +356,17 @@ function ProductDetail() {
               style={{
                 display: "flex",
                 alignItems: "baseline",
+                flexWrap: "wrap",
                 gap: "12px",
                 padding: "16px 20px",
                 backgroundColor: "var(--color-surface)",
                 border: "1px solid var(--color-border)",
                 borderRadius: "var(--radius-md)",
-                marginBottom: "24px"
+                marginBottom: "20px"
               }}
             >
               <span style={{ fontSize: "2rem", fontWeight: "800", color: "var(--color-text-primary)" }}>
-                ₹{Number(product.price).toLocaleString("en-IN")}
+                ₹{Number(currentPrice).toLocaleString("en-IN")}
               </span>
               {discountPercent > 0 && (
                 <>
@@ -340,7 +378,77 @@ function ProductDetail() {
                   </span>
                 </>
               )}
+              {activeVariant?.name && (
+                <span
+                  style={{
+                    marginLeft: "auto",
+                    fontSize: "0.82rem",
+                    backgroundColor: "rgba(99, 102, 241, 0.12)",
+                    color: "var(--color-primary)",
+                    padding: "4px 10px",
+                    borderRadius: "var(--radius-pill)",
+                    fontWeight: "600"
+                  }}
+                >
+                  {activeVariant.name}
+                </span>
+              )}
             </div>
+
+            {/* Interactive Variant Selectors (Size, Color, Storage, etc.) */}
+            {Array.isArray(product.variantAttributes) && product.variantAttributes.length > 0 && (
+              <div
+                style={{
+                  padding: "18px 20px",
+                  backgroundColor: "var(--color-surface)",
+                  border: "1px solid var(--color-border)",
+                  borderRadius: "var(--radius-md)",
+                  marginBottom: "24px",
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: "16px"
+                }}
+              >
+                {product.variantAttributes.map((attr) => (
+                  <div key={attr.name}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px" }}>
+                      <span style={{ fontSize: "0.82rem", fontWeight: "700", color: "var(--color-text-primary)", textTransform: "uppercase", letterSpacing: "0.05em" }}>
+                        {attr.name}
+                      </span>
+                      <span style={{ fontSize: "0.82rem", fontWeight: "600", color: "var(--color-primary)" }}>
+                        {selectedAttributes[attr.name] || attr.options?.[0]}
+                      </span>
+                    </div>
+
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: "8px" }}>
+                      {Array.isArray(attr.options) && attr.options.map((option) => {
+                        const isSelected = (selectedAttributes[attr.name] || attr.options[0]) === option;
+                        return (
+                          <button
+                            key={option}
+                            type="button"
+                            onClick={() => setSelectedAttributes((prev) => ({ ...prev, [attr.name]: option }))}
+                            style={{
+                              padding: "8px 16px",
+                              borderRadius: "8px",
+                              fontSize: "0.85rem",
+                              fontWeight: isSelected ? "700" : "500",
+                              cursor: "pointer",
+                              transition: "all 0.15s ease",
+                              border: isSelected ? "2px solid var(--color-primary)" : "1px solid var(--color-border)",
+                              backgroundColor: isSelected ? "rgba(99, 102, 241, 0.14)" : "var(--color-surface-subtle)",
+                              color: isSelected ? "var(--color-primary)" : "var(--color-text-primary)"
+                            }}
+                          >
+                            {option}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
 
             <p style={{ fontSize: "0.95rem", color: "var(--color-text-secondary)", lineHeight: "1.7", marginBottom: "28px" }}>
               {product.description || "Premium quality product, verified and dispatched directly from our regional fulfillment centers."}
@@ -416,7 +524,7 @@ function ProductDetail() {
                   </span>
                   <button
                     type="button"
-                    onClick={() => setQuantity((q) => Math.min(product.stock, q + 1))}
+                    onClick={() => setQuantity((q) => Math.min(currentStock, q + 1))}
                     className="btn btn-secondary btn-sm"
                     style={{ width: "36px", height: "36px", padding: 0 }}
                   >

@@ -31,6 +31,8 @@ class ProductRepository {
       reviewsCount: Number(item.reviewsCount || 0),
       warranty: item.warranty || "1 Year Manufacturer Warranty",
       reviews: Array.isArray(item.reviews) ? item.reviews : [],
+      variants: Array.isArray(item.variants) ? item.variants : [],
+      variantAttributes: Array.isArray(item.variantAttributes) ? item.variantAttributes : [],
       version: Number(item.version || 1),
       createdAt: item.createdAt,
       updatedAt: item.updatedAt
@@ -67,7 +69,10 @@ class ProductRepository {
 
     const productId = productData.productId || `p_${crypto.randomUUID()}`;
     const now = new Date().toISOString();
-    const searchTerms = `${name.toLowerCase()} ${category.toLowerCase()} ${description.toLowerCase()}`;
+    const variants = Array.isArray(productData.variants) ? productData.variants : [];
+    const variantAttributes = Array.isArray(productData.variantAttributes) ? productData.variantAttributes : [];
+    const variantTerms = variants.map((v) => `${v.name || ""} ${Object.values(v.attributes || {}).join(" ")}`).join(" ").toLowerCase();
+    const searchTerms = `${name.toLowerCase()} ${category.toLowerCase()} ${description.toLowerCase()} ${variantTerms}`.trim();
 
     const item = {
       productId,
@@ -78,6 +83,8 @@ class ProductRepository {
       stock: Number(stock),
       image: image || "",
       mrp: mrp !== undefined ? Number(mrp) : Number(price),
+      variants,
+      variantAttributes,
       rating: 0,
       reviewsCount: 0,
       warranty: warranty || "1 Year Manufacturer Warranty",
@@ -115,9 +122,12 @@ class ProductRepository {
     const image = updateFields.image !== undefined ? updateFields.image : existing.image;
     const mrp = updateFields.mrp !== undefined ? Number(updateFields.mrp) : existing.mrp;
     const warranty = updateFields.warranty !== undefined ? updateFields.warranty : existing.warranty;
+    const variants = updateFields.variants !== undefined ? updateFields.variants : (existing.variants || []);
+    const variantAttributes = updateFields.variantAttributes !== undefined ? updateFields.variantAttributes : (existing.variantAttributes || []);
 
     const now = new Date().toISOString();
-    const searchTerms = `${name.toLowerCase()} ${category.toLowerCase()} ${description.toLowerCase()}`;
+    const variantTerms = (Array.isArray(variants) ? variants : []).map((v) => `${v.name || ""} ${Object.values(v.attributes || {}).join(" ")}`).join(" ").toLowerCase();
+    const searchTerms = `${name.toLowerCase()} ${category.toLowerCase()} ${description.toLowerCase()} ${variantTerms}`.trim();
 
     try {
       await this.docClient.send(
@@ -133,6 +143,8 @@ class ProductRepository {
                 image = :image,
                 mrp = :mrp,
                 warranty = :warranty,
+                variants = :variants,
+                variantAttributes = :variantAttributes,
                 searchTerms = :searchTerms,
                 #v = #v + :inc,
                 updatedAt = :now
@@ -151,6 +163,8 @@ class ProductRepository {
             ":image": image,
             ":mrp": mrp,
             ":warranty": warranty,
+            ":variants": variants,
+            ":variantAttributes": variantAttributes,
             ":searchTerms": searchTerms,
             ":inc": 1,
             ":now": now

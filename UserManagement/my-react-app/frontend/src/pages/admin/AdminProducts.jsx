@@ -14,7 +14,8 @@ import {
   Trash2,
   Filter,
   ArrowUpDown,
-  Boxes
+  Boxes,
+  Sparkles
 } from "lucide-react";
 
 const ITEMS_PER_PAGE = 20;
@@ -23,6 +24,7 @@ function AdminProducts() {
   const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [seeding, setSeeding] = useState(false);
   const [search, setSearch] = useState("");
   const [selectedCategory, setSelectedCategory] = useState("all");
   const [sortBy, setSortBy] = useState("default");
@@ -72,6 +74,27 @@ function AdminProducts() {
     }
   }
 
+  async function handleSeedCatalog() {
+    if (!window.confirm("This will purge legacy products and seed brand new premium products with full variants (Size, Color, Storage). Proceed?")) return;
+
+    const token = localStorage.getItem("token");
+    try {
+      setSeeding(true);
+      const res = await fetch(`${API_URL}/api/products/seed-catalog`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message || "Failed to seed catalog");
+      alert(data.message);
+      await fetchProducts("");
+    } catch (err) {
+      alert(err.message);
+    } finally {
+      setSeeding(false);
+    }
+  }
+
   // Categories list
   const categories = ["all", ...new Set(products.map((p) => p.category).filter(Boolean))];
 
@@ -117,10 +140,22 @@ function AdminProducts() {
             subtitle="Manage product catalog, real-time warehouse stock, and pricing."
             badge={<Badge variant="info">{products.length} Products</Badge>}
             actions={
-              <Link to="/admin/products/add" className="btn btn-primary">
-                <Plus size={16} />
-                <span>Add Product</span>
-              </Link>
+              <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
+                <button
+                  type="button"
+                  onClick={handleSeedCatalog}
+                  disabled={seeding}
+                  className="btn btn-secondary"
+                  title="Purge legacy products and seed real-world catalog with variants"
+                >
+                  <Sparkles size={16} />
+                  <span>{seeding ? "Seeding..." : "Seed Variant Catalog"}</span>
+                </button>
+                <Link to="/admin/products/add" className="btn btn-primary">
+                  <Plus size={16} />
+                  <span>Add Product</span>
+                </Link>
+              </div>
             }
           />
 

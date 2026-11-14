@@ -43,7 +43,18 @@ function Orders() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.message || "Failed to fetch orders");
-      setOrders(Array.isArray(data) ? data : (data.orders || []));
+      const rawOrders = Array.isArray(data) ? data : (data.orders || []);
+      // Real E-Commerce Filter: Only display confirmed, paid orders
+      const confirmedOrders = rawOrders.filter((order) => {
+        if (!order) return false;
+        const isPaid = (order.paymentStatus || "").toLowerCase() === "paid";
+        const isCod = (order.paymentMethod || "").toLowerCase() === "cashondelivery";
+        const isFulfillmentActive = ["processing", "shipped", "delivered"].includes(
+          (order.status || "").toLowerCase()
+        );
+        return isPaid || isCod || isFulfillmentActive;
+      });
+      setOrders(confirmedOrders);
     } catch (err) {
       if (!isQuiet) setError(err.message);
     } finally {
@@ -230,6 +241,11 @@ function Orders() {
                             <div style={{ fontWeight: 600, fontSize: "0.92rem", color: "var(--text-primary)" }}>
                               {item.name}
                             </div>
+                            {item.variant && (
+                              <div style={{ fontSize: "0.78rem", color: "var(--primary)", fontWeight: 600, marginTop: "2px" }}>
+                                {item.variant.name || (item.variant.attributes ? Object.entries(item.variant.attributes).map(([k, v]) => `${k}: ${v}`).join(" • ") : "")}
+                              </div>
+                            )}
                             <div style={{ fontSize: "0.8rem", color: "var(--text-secondary)" }}>
                               Qty: {item.quantity} × ₹{item.price}
                             </div>
