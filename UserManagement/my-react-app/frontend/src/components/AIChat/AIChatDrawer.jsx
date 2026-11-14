@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { Sparkles, X, Send, Bot, RefreshCw } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import ProductCardMini from "./ProductCardMini";
+import OrderCardMini from "./OrderCardMini";
 import { sendChatMessage } from "../../services/aiService";
 
 let messageSeq = 0;
@@ -39,8 +40,32 @@ function getInitialMessage(user) {
     text: name
       ? `👋 Hi ${name}! I'm your personal Shopiee assistant. Ask me anything about our products, recommendations, deals, or your orders!`
       : "👋 Hi! I'm Shopiee Concierge, your AI shopping assistant. Ask me anything about our products, deals, specs, or your orders!",
-    products: []
+    products: [],
+    orders: []
   };
+}
+
+function cleanAssistantText(rawText, hasCards = false) {
+  if (!rawText) return "";
+  let text = rawText;
+
+  // If structured cards are already rendered, strip raw listed order lines from the prose
+  if (hasCards) {
+    text = text.replace(/^\d+\.\s*\*\*Order\s*#[^*]+\*\*[^\n]*/gim, "");
+    text = text.replace(/Here is the complete list of your recent orders[^\n]*:/i, "Here are your recent orders from your account:");
+  }
+
+  // Remove raw pipes, bold asterisks, and markdown hashes
+  text = text.replace(/\|\s*\*\*Status:\*\*\s*/gi, " • Status: ");
+  text = text.replace(/\|\s*\*\*Total:\*\*\s*/gi, " • Total: ");
+  text = text.replace(/\|\s*/g, " • ");
+  text = text.replace(/\*\*/g, "");
+  text = text.replace(/^#+\s*/gm, "");
+
+  // Clean extra blank lines
+  text = text.replace(/\n{3,}/g, "\n\n");
+
+  return text.trim();
 }
 
 function loadUserMessages(user) {
@@ -144,7 +169,8 @@ export default function AIChatDrawer() {
         id: nextMessageId("ai"),
         role: "assistant",
         text: data.reply || "Here is what I found for you:",
-        products: data.products || []
+        products: data.products || [],
+        orders: data.orders || []
       };
 
       setMessages((prev) => [...prev, assistantMessage]);
@@ -155,7 +181,8 @@ export default function AIChatDrawer() {
           id: nextMessageId("err"),
           role: "assistant",
           text: "⚠️ Sorry, I ran into an issue connecting to the assistant. Please try asking again in a moment.",
-          products: []
+          products: [],
+          orders: []
         }
       ]);
     } finally {
@@ -186,6 +213,11 @@ export default function AIChatDrawer() {
       setIsOpen(false);
       navigate(`/products/${id}`);
     }
+  };
+
+  const handleOrderSelect = () => {
+    setIsOpen(false);
+    navigate("/orders");
   };
 
   return (
@@ -362,8 +394,37 @@ export default function AIChatDrawer() {
                       whiteSpace: "pre-wrap"
                     }}
                   >
-                    {m.text}
+                    {isUser
+                      ? m.text
+                      : cleanAssistantText(
+                          m.text,
+                          (Array.isArray(m.orders) && m.orders.length > 0) ||
+                            (Array.isArray(m.products) && m.products.length > 0)
+                        )}
                   </div>
+
+                  {/* Render Interactive Order Cards when attached */}
+                  {Array.isArray(m.orders) && m.orders.length > 0 && (
+                    <div style={{ width: "100%", marginTop: "8px" }}>
+                      <div
+                        style={{
+                          fontSize: "0.75rem",
+                          fontWeight: "600",
+                          color: "var(--color-text-secondary, #94a3b8)",
+                          marginBottom: "4px"
+                        }}
+                      >
+                        Your Orders ({m.orders.length}) - Tap to track:
+                      </div>
+                      {m.orders.map((ord) => (
+                        <OrderCardMini
+                          key={ord.orderId || ord._id}
+                          order={ord}
+                          onSelect={handleOrderSelect}
+                        />
+                      ))}
+                    </div>
+                  )}
 
                   {/* Render Interactive Product Cards when attached */}
                   {Array.isArray(m.products) && m.products.length > 0 && (
