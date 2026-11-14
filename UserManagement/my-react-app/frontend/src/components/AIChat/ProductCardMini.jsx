@@ -23,6 +23,7 @@ export default function ProductCardMini({ product, onSelect }) {
   return (
     <div
       onClick={() => onSelect && onSelect(product)}
+      title={`View ${product.name}`}
       style={{
         display: "flex",
         alignItems: "center",
@@ -36,6 +37,14 @@ export default function ProductCardMini({ product, onSelect }) {
         marginBottom: "6px"
       }}
       className="ai-product-card-mini"
+      onMouseEnter={(e) => {
+        e.currentTarget.style.borderColor = "var(--color-coral, #FF7043)";
+        e.currentTarget.style.transform = "translateY(-1px)";
+      }}
+      onMouseLeave={(e) => {
+        e.currentTarget.style.borderColor = "var(--color-border, #334155)";
+        e.currentTarget.style.transform = "translateY(0)";
+      }}
     >
       {/* Product Image */}
       <div

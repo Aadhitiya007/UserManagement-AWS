@@ -1,6 +1,6 @@
 const { GoogleGenAI } = require("@google/genai");
 const { SHOPIEE_SYSTEM_PROMPT } = require("./ai.prompts");
-const { functionDeclarations, toolExecutors } = require("./ai.tools");
+const { functionDeclarations, toolExecutors, cleanSearchQuery } = require("./ai.tools");
 
 function getGenAIClient() {
   const apiKey = process.env.GEMINI_API_KEY;
@@ -159,7 +159,15 @@ async function processChatMessage({ message, history = [], user = null }) {
       const finalReply =
         followUpResponse.text ||
         followUpResponse.candidates?.[0]?.content?.parts?.[0]?.text ||
-        "Here are the products I found for you:";
+        (collectedProducts.length > 0 ? "Here are the top products I found for you in our catalog:" : "I searched our store but couldn't find items matching that exact criteria. Here are our popular picks:");
+
+      // Safety check: If tool executed with 0 results, run fallback search to ensure user gets relevant cards
+      if (collectedProducts.length === 0) {
+        const autoAttached = await toolExecutors.searchProducts({ query: message });
+        if (autoAttached && Array.isArray(autoAttached.products)) {
+          collectedProducts = autoAttached.products;
+        }
+      }
 
       return {
         reply: finalReply,
@@ -168,15 +176,24 @@ async function processChatMessage({ message, history = [], user = null }) {
       };
     }
 
-    // 6. Direct conversational response (no tool needed)
+    // 6. Direct conversational response (no tool was called by model)
     const directReply =
       response.text ||
       parts.find((p) => p.text)?.text ||
       "How can I assist you with Shopiee products today?";
 
+    // If direct reply hints at finding products, or message is clearly shopping intent, attach matching products
+    const cleanedTerms = cleanSearchQuery(message);
+    if (cleanedTerms && cleanedTerms.length >= 3) {
+      const autoAttached = await toolExecutors.searchProducts({ query: message });
+      if (autoAttached && Array.isArray(autoAttached.products) && autoAttached.products.length > 0) {
+        collectedProducts = autoAttached.products;
+      }
+    }
+
     return {
       reply: directReply,
-      products: [],
+      products: collectedProducts,
       source: "gemini-direct"
     };
   } catch (err) {
