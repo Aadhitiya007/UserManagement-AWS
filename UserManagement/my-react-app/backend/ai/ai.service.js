@@ -1,5 +1,5 @@
 const { GoogleGenAI } = require("@google/genai");
-const { SHOPIEE_SYSTEM_PROMPT } = require("./ai.prompts");
+const { buildSystemPrompt } = require("./ai.prompts");
 const { functionDeclarations, toolExecutors, cleanSearchQuery } = require("./ai.tools");
 
 function getGenAIClient() {
@@ -15,41 +15,53 @@ function getModelName() {
 }
 
 /**
- * Fast keyword fallback search when Gemini API Key is unconfigured
+ * Fast keyword fallback search when Gemini API Key is unconfigured or encounters an error
  */
-async function fallbackSearch(userMessage) {
-  let cleanMsg = userMessage.toLowerCase().trim();
+async function fallbackSearch(userMessage, user = null) {
+  const lowerMsg = (userMessage || "").toLowerCase().trim();
 
-  // Strip common conversational filler prefixes
-  const fillerRegex = /^(can you\s+)?(show me|find|looking for|i want|search for|display|get me|do you have)\s+/i;
-  cleanMsg = cleanMsg.replace(fillerRegex, "").trim();
-  
-  // Extract potential category keywords
-  const categories = ["audio", "electronics", "gaming", "cameras", "wearables", "accessories"];
-  const matchedCategory = categories.find((cat) => cleanMsg.includes(cat));
+  // 1. Personal Order Tracking Intent
+  if (
+    lowerMsg.includes("order") ||
+    lowerMsg.includes("track") ||
+    lowerMsg.includes("package") ||
+    lowerMsg.includes("delivery") ||
+    lowerMsg.includes("shipment")
+  ) {
+    if (!user || !(user.id || user._id)) {
+      return {
+        reply: "To check and track your personal orders, please log in to your Shopiee account first!",
+        products: [],
+        source: "local-auth-guard"
+      };
+    }
 
-  // If search query is still multi-word, try individual key terms if full query yields 0
-  let searchResult = await toolExecutors.searchProducts({
-    query: cleanMsg,
-    category: matchedCategory ? matchedCategory.charAt(0).toUpperCase() + matchedCategory.slice(1) : undefined
-  });
-
-  if ((!searchResult.products || searchResult.products.length === 0) && cleanMsg.includes(" ")) {
-    const words = cleanMsg.split(/\s+/).filter((w) => w.length > 3);
-    for (const word of words) {
-      const retryResult = await toolExecutors.searchProducts({ query: word });
-      if (retryResult.products && retryResult.products.length > 0) {
-        searchResult = retryResult;
-        break;
-      }
+    const orderRes = await toolExecutors.getMyOrders({}, user);
+    if (orderRes.orders && orderRes.orders.length > 0) {
+      const topOrder = orderRes.orders[0];
+      const itemsList = topOrder.items.join(", ");
+      return {
+        reply: `Hi ${user.name || "there"}! Your recent order (#${topOrder.orderId}) is currently marked as "${topOrder.status}". Items: ${itemsList}. Total: ₹${topOrder.totalAmount?.toLocaleString("en-IN")}.`,
+        products: [],
+        source: "local-order-lookup"
+      };
+    } else {
+      return {
+        reply: `Hi ${user.name || "there"}! You don't have any active orders right now. Would you like to check out our latest arrivals?`,
+        products: [],
+        source: "local-order-lookup"
+      };
     }
   }
 
+  // 2. Product Search Intent
+  const searchResult = await toolExecutors.searchProducts({ query: userMessage });
   const products = searchResult.products || [];
-  let reply = "";
 
+  let reply = "";
   if (products.length > 0) {
-    reply = `I found ${products.length} product(s) matching your request in our catalog! Take a look below:`;
+    const greeting = user?.name ? `Hi ${user.name}! ` : "";
+    reply = `${greeting}Here are the top products I found for you in our catalog. Tap any card below to view specifications and add to your bag:`;
   } else {
     reply = "I couldn't find any products matching that specific term. Would you like to browse our popular categories like Audio, Electronics, or Gaming?";
   }
@@ -74,17 +86,18 @@ async function processChatMessage({ message, history = [], user = null }) {
   // 1. Fallback if no Gemini API Key is configured
   if (!client) {
     console.log("[AI Service] GEMINI_API_KEY not configured. Running fallback local search.");
-    return fallbackSearch(message);
+    return fallbackSearch(message, user);
   }
 
   const modelName = getModelName();
+  const systemInstruction = buildSystemPrompt(user);
   let collectedProducts = [];
 
   try {
     // 2. Prepare conversation contents
     const contents = [];
 
-    // Add previous history turns if provided (max 4 turns to conserve tokens)
+    // Add recent history turns if provided (max 4 turns to conserve tokens)
     if (Array.isArray(history) && history.length > 0) {
       const recentHistory = history.slice(-4);
       for (const turn of recentHistory) {
@@ -108,7 +121,7 @@ async function processChatMessage({ message, history = [], user = null }) {
       model: modelName,
       contents,
       config: {
-        systemInstruction: SHOPIEE_SYSTEM_PROMPT,
+        systemInstruction,
         temperature: 0.3,
         tools: [{ functionDeclarations }]
       }
@@ -125,7 +138,7 @@ async function processChatMessage({ message, history = [], user = null }) {
 
       let functionResult = { error: `Function ${name} not found` };
       if (typeof toolExecutors[name] === "function") {
-        functionResult = await toolExecutors[name](args);
+        functionResult = await toolExecutors[name](args, user);
         if (functionResult && Array.isArray(functionResult.products)) {
           collectedProducts = functionResult.products;
         } else if (functionResult && functionResult.id) {
@@ -134,7 +147,7 @@ async function processChatMessage({ message, history = [], user = null }) {
       }
 
       // 5. Send function execution output back to Gemini for conversational summarization
-      contents.push(candidate.content); // Model's tool call turn
+      contents.push(candidate.content);
       contents.push({
         role: "user",
         parts: [
@@ -151,7 +164,7 @@ async function processChatMessage({ message, history = [], user = null }) {
         model: modelName,
         contents,
         config: {
-          systemInstruction: SHOPIEE_SYSTEM_PROMPT,
+          systemInstruction,
           temperature: 0.3
         }
       });
@@ -159,10 +172,12 @@ async function processChatMessage({ message, history = [], user = null }) {
       const finalReply =
         followUpResponse.text ||
         followUpResponse.candidates?.[0]?.content?.parts?.[0]?.text ||
-        (collectedProducts.length > 0 ? "Here are the top products I found for you in our catalog:" : "I searched our store but couldn't find items matching that exact criteria. Here are our popular picks:");
+        (collectedProducts.length > 0
+          ? "Here are the top products I found for you in our catalog:"
+          : "I searched our store but couldn't find items matching that exact criteria.");
 
-      // Safety check: If tool executed with 0 results, run fallback search to ensure user gets relevant cards
-      if (collectedProducts.length === 0) {
+      // Safety check: If tool executed with 0 results or query was shopping related, attach relevant products
+      if (collectedProducts.length === 0 && name === "searchProducts") {
         const autoAttached = await toolExecutors.searchProducts({ query: message });
         if (autoAttached && Array.isArray(autoAttached.products)) {
           collectedProducts = autoAttached.products;
@@ -180,11 +195,19 @@ async function processChatMessage({ message, history = [], user = null }) {
     const directReply =
       response.text ||
       parts.find((p) => p.text)?.text ||
-      "How can I assist you with Shopiee products today?";
+      "How can I assist your shopping today?";
 
-    // If direct reply hints at finding products, or message is clearly shopping intent, attach matching products
-    const cleanedTerms = cleanSearchQuery(message);
-    if (cleanedTerms && cleanedTerms.length >= 3) {
+    // If direct reply hints at finding products, or message is shopping intent, attach matching products
+    const lowerDirect = directReply.toLowerCase();
+    const isShoppingQuery =
+      lowerDirect.includes("found") ||
+      lowerDirect.includes("product") ||
+      lowerDirect.includes("recommend") ||
+      lowerDirect.includes("here are") ||
+      lowerDirect.includes("check out") ||
+      cleanSearchQuery(message).length >= 2;
+
+    if (isShoppingQuery) {
       const autoAttached = await toolExecutors.searchProducts({ query: message });
       if (autoAttached && Array.isArray(autoAttached.products) && autoAttached.products.length > 0) {
         collectedProducts = autoAttached.products;
@@ -198,8 +221,8 @@ async function processChatMessage({ message, history = [], user = null }) {
     };
   } catch (err) {
     console.error("[AI Service Error]:", err.message);
-    // Graceful fallback to catalog search on API error
-    return fallbackSearch(message);
+    // Graceful fallback to local catalog search on API error
+    return fallbackSearch(message, user);
   }
 }
 

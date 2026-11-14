@@ -17,22 +17,95 @@ const QUICK_PROMPTS = [
   "🔥 Show top discounts today"
 ];
 
+function getStoredUser() {
+  try {
+    const raw = localStorage.getItem("user");
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+}
+
+function getChatKey(user) {
+  const uid = user?.id || user?._id || user?.userId;
+  return uid ? `shopiee_ai_chat_${uid}` : "shopiee_ai_chat_guest";
+}
+
+function getInitialMessage(user) {
+  const name = user?.name ? user.name.split(" ")[0] : null;
+  return {
+    id: "welcome",
+    role: "assistant",
+    text: name
+      ? `👋 Hi ${name}! I'm your personal Shopiee assistant. Ask me anything about our products, recommendations, deals, or your orders!`
+      : "👋 Hi! I'm Shopiee Concierge, your AI shopping assistant. Ask me anything about our products, deals, specs, or your orders!",
+    products: []
+  };
+}
+
+function loadUserMessages(user) {
+  const key = getChatKey(user);
+  try {
+    const saved = localStorage.getItem(key);
+    if (saved) {
+      const parsed = JSON.parse(saved);
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        return parsed;
+      }
+    }
+  } catch {
+    // ignore parse error
+  }
+  return [getInitialMessage(user)];
+}
+
 export default function AIChatDrawer() {
   const navigate = useNavigate();
   const [isOpen, setIsOpen] = useState(false);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
-  const [messages, setMessages] = useState([
-    {
-      id: "welcome",
-      role: "assistant",
-      text: "👋 Hi! I'm Shopiee Concierge, your AI shopping assistant. Ask me anything about our products, deals, specs, or your orders!",
-      products: []
-    }
-  ]);
+  const [currentUser, setCurrentUser] = useState(getStoredUser);
+  const [messages, setMessages] = useState(() => loadUserMessages(getStoredUser()));
 
   const messagesEndRef = useRef(null);
   const inputRef = useRef(null);
+
+  // Synchronize when active user changes (Login, Logout, Account Switch across tabs or windows)
+  useEffect(() => {
+    const syncUser = () => {
+      const latestUser = getStoredUser();
+      const currentUid = currentUser?.id || currentUser?._id;
+      const latestUid = latestUser?.id || latestUser?._id;
+
+      if (currentUid !== latestUid) {
+        setCurrentUser(latestUser);
+        setMessages(loadUserMessages(latestUser));
+      }
+    };
+
+    window.addEventListener("storage", syncUser);
+    window.addEventListener("auth:logout", syncUser);
+    window.addEventListener("focus", syncUser);
+
+    const interval = setInterval(syncUser, 1200);
+
+    return () => {
+      window.removeEventListener("storage", syncUser);
+      window.removeEventListener("auth:logout", syncUser);
+      window.removeEventListener("focus", syncUser);
+      clearInterval(interval);
+    };
+  }, [currentUser]);
+
+  // Persist messages in isolated user-specific storage key
+  useEffect(() => {
+    const key = getChatKey(currentUser);
+    try {
+      localStorage.setItem(key, JSON.stringify(messages));
+    } catch {
+      // ignore storage errors
+    }
+  }, [messages, currentUser]);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -59,7 +132,7 @@ export default function AIChatDrawer() {
     setInput("");
     setLoading(true);
 
-    // Extract last 4 turns for context
+    // Extract recent turns for conversational context
     const history = messages
       .filter((m) => m.id !== "welcome")
       .map((m) => ({ role: m.role, text: m.text }));
@@ -70,7 +143,7 @@ export default function AIChatDrawer() {
       const assistantMessage = {
         id: nextMessageId("ai"),
         role: "assistant",
-        text: data.reply || "Here is what I found:",
+        text: data.reply || "Here is what I found for you:",
         products: data.products || []
       };
 
@@ -81,7 +154,7 @@ export default function AIChatDrawer() {
         {
           id: nextMessageId("err"),
           role: "assistant",
-          text: "⚠️ Sorry, I ran into an issue connecting to the AI service. Please try asking again in a moment.",
+          text: "⚠️ Sorry, I ran into an issue connecting to the assistant. Please try asking again in a moment.",
           products: []
         }
       ]);
@@ -98,14 +171,13 @@ export default function AIChatDrawer() {
   };
 
   const handleClear = () => {
-    setMessages([
-      {
-        id: "welcome",
-        role: "assistant",
-        text: "Conversation cleared! How can I assist your shopping today?",
-        products: []
-      }
-    ]);
+    const key = getChatKey(currentUser);
+    try {
+      localStorage.removeItem(key);
+    } catch {
+      // ignore
+    }
+    setMessages([getInitialMessage(currentUser)]);
   };
 
   const handleProductSelect = (product) => {
@@ -211,7 +283,11 @@ export default function AIChatDrawer() {
                 </div>
                 <div style={{ display: "flex", alignItems: "center", gap: "5px", fontSize: "0.72rem", color: "#10b981" }}>
                   <span style={{ width: "6px", height: "6px", borderRadius: "50%", background: "#10b981" }} />
-                  <span>Online • Ready to help</span>
+                  <span>
+                    {currentUser?.name
+                      ? `Personal Assistant for ${currentUser.name.split(" ")[0]} • Private Chat`
+                      : "Online • Private & Secure"}
+                  </span>
                 </div>
               </div>
             </div>
@@ -219,7 +295,7 @@ export default function AIChatDrawer() {
             <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
               <button
                 onClick={handleClear}
-                title="Clear Chat"
+                title="Clear My Chat"
                 style={{
                   background: "transparent",
                   border: "none",
@@ -289,7 +365,7 @@ export default function AIChatDrawer() {
                     {m.text}
                   </div>
 
-                  {/* Render Product Cards if Assistant attached them */}
+                  {/* Render Interactive Product Cards when attached */}
                   {Array.isArray(m.products) && m.products.length > 0 && (
                     <div style={{ width: "100%", marginTop: "8px" }}>
                       <div
@@ -300,7 +376,7 @@ export default function AIChatDrawer() {
                           marginBottom: "4px"
                         }}
                       >
-                        Recommended from catalog ({m.products.length}):
+                        Recommended from catalog ({m.products.length}) - Tap to view:
                       </div>
                       {m.products.map((prod) => (
                         <ProductCardMini
@@ -468,4 +544,3 @@ export default function AIChatDrawer() {
     </>
   );
 }
-
