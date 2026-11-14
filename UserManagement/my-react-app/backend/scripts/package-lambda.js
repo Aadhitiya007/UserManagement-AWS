@@ -19,6 +19,7 @@ function buildLambdaPackage() {
     "websocketHandler.js",
     "server.js",
     "package.json",
+    "ai",
     "config",
     "controllers",
     "middleware",

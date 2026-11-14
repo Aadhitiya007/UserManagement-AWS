@@ -37,6 +37,7 @@ const orderRoutes = require("./routes/orderRoutes");
 const paymentRoutes = require("./routes/paymentRoutes");
 const couponRoutes = require("./routes/couponRoutes");
 const auditLogRoutes = require("./routes/auditLogRoutes");
+const aiRoutes = require("./routes/aiRoutes");
 
 const app = express();
 const server = http.createServer(app);
@@ -233,6 +234,7 @@ app.use("/api/orders", orderRoutes);
 app.use("/api/payment", paymentRoutes);
 app.use("/api/coupons", couponRoutes);
 app.use("/api/audit-logs", auditLogRoutes);
+app.use("/api/ai", aiRoutes);
 
 app.use((err, req, res, next) => {
   console.error("Server Error:", err.message || err);

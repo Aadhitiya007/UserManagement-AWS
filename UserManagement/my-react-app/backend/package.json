@@ -5,7 +5,7 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "test": "node tests/s3-image.test.js && node tests/dynamodb-repositories.test.js && node tests/user-dynamodb-controller.test.js && node tests/product-dynamodb-controller.test.js && node tests/order-dynamodb-controller.test.js && node tests/coupon-dynamodb.test.js && node tests/password-reset-dynamodb.test.js && node tests/email-verification-dynamodb.test.js && node tests/razorpay-payment.test.js && node tests/lambda-handler.test.js",
+    "test": "node tests/s3-image.test.js && node tests/dynamodb-repositories.test.js && node tests/user-dynamodb-controller.test.js && node tests/product-dynamodb-controller.test.js && node tests/order-dynamodb-controller.test.js && node tests/coupon-dynamodb.test.js && node tests/password-reset-dynamodb.test.js && node tests/email-verification-dynamodb.test.js && node tests/razorpay-payment.test.js && node tests/lambda-handler.test.js && node tests/ai-assistant.test.js",
     "package:lambda": "node scripts/package-lambda.js",
     "create:orders-table": "node scripts/create-orders-table.js",
     "create:ws-table": "node scripts/create-ws-table.js",
@@ -24,6 +24,7 @@
     "@aws-sdk/lib-dynamodb": "^3.1158.0",
     "@aws-sdk/s3-request-presigner": "^3.1147.0",
     "@codegenie/serverless-express": "^5.0.0",
+    "@google/genai": "^3.3.0",
     "bcryptjs": "^3.0.3",
     "cors": "^2.8.6",
     "csv-parser": "^3.2.1",
