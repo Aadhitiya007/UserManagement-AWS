@@ -38,17 +38,17 @@ async function fallbackSearch(userMessage, user = null) {
 
     const orderRes = await toolExecutors.getMyOrders({}, user);
     if (orderRes.orders && orderRes.orders.length > 0) {
-      const topOrder = orderRes.orders[0];
-      const itemsList = topOrder.items.join(", ");
       return {
-        reply: `Hi ${user.name || "there"}! Your recent order (#${topOrder.orderId}) is currently marked as "${topOrder.status}". Items: ${itemsList}. Total: ₹${topOrder.totalAmount?.toLocaleString("en-IN")}.`,
+        reply: `Hi ${user.name ? user.name.split(" ")[0] : "there"}! Here are your recent orders from your account. Tap any order below to track delivery or view full details:`,
         products: [],
+        orders: orderRes.orders,
         source: "local-order-lookup"
       };
     } else {
       return {
-        reply: `Hi ${user.name || "there"}! You don't have any active orders right now. Would you like to check out our latest arrivals?`,
+        reply: `Hi ${user.name ? user.name.split(" ")[0] : "there"}! You don't have any active orders right now. Would you like to check out our latest arrivals?`,
         products: [],
+        orders: [],
         source: "local-order-lookup"
       };
     }
@@ -60,7 +60,7 @@ async function fallbackSearch(userMessage, user = null) {
 
   let reply = "";
   if (products.length > 0) {
-    const greeting = user?.name ? `Hi ${user.name}! ` : "";
+    const greeting = user?.name ? `Hi ${user.name.split(" ")[0]}! ` : "";
     reply = `${greeting}Here are the top products I found for you in our catalog. Tap any card below to view specifications and add to your bag:`;
   } else {
     reply = "I couldn't find any products matching that specific term. Would you like to browse our popular categories like Audio, Electronics, or Gaming?";
@@ -69,6 +69,7 @@ async function fallbackSearch(userMessage, user = null) {
   return {
     reply,
     products,
+    orders: [],
     source: "local-fallback"
   };
 }
@@ -92,6 +93,7 @@ async function processChatMessage({ message, history = [], user = null }) {
   const modelName = getModelName();
   const systemInstruction = buildSystemPrompt(user);
   let collectedProducts = [];
+  let collectedOrders = [];
 
   try {
     // 2. Prepare conversation contents
@@ -144,6 +146,10 @@ async function processChatMessage({ message, history = [], user = null }) {
         } else if (functionResult && functionResult.id) {
           collectedProducts = [functionResult];
         }
+
+        if (functionResult && Array.isArray(functionResult.orders)) {
+          collectedOrders = functionResult.orders;
+        }
       }
 
       // 5. Send function execution output back to Gemini for conversational summarization
@@ -187,6 +193,7 @@ async function processChatMessage({ message, history = [], user = null }) {
       return {
         reply: finalReply,
         products: collectedProducts,
+        orders: collectedOrders,
         source: "gemini-function-calling"
       };
     }
@@ -217,6 +224,7 @@ async function processChatMessage({ message, history = [], user = null }) {
     return {
       reply: directReply,
       products: collectedProducts,
+      orders: collectedOrders,
       source: "gemini-direct"
     };
   } catch (err) {

@@ -12,8 +12,9 @@ function buildLambdaPackage() {
     console.log("Removed previous zip artifact.");
   }
 
-  console.log("Creating lambda-deployment.zip containing production runtime files...");
+  console.log("Creating optimized production lambda-deployment.zip without unused packages & dev files...");
 
+  // Files & folders required for Lambda execution
   const items = [
     "lambda.js",
     "websocketHandler.js",
@@ -30,13 +31,37 @@ function buildLambdaPackage() {
     "node_modules"
   ];
 
+  // Exclude unused packages, dev dependencies, type definitions, source maps, and documentation
+  const excludes = [
+    '--exclude="node_modules/@types"',
+    '--exclude="node_modules/nodemon"',
+    '--exclude="node_modules/socket.io-client"',
+    '--exclude="node_modules/csv-parser"',
+    '--exclude="node_modules/.bin"',
+    '--exclude="*.map"',
+    '--exclude="*.d.ts"',
+    '--exclude="*.ts"',
+    '--exclude="*.md"',
+    '--exclude="*.markdown"',
+    '--exclude="LICENSE*"',
+    '--exclude="CHANGELOG*"',
+    '--exclude="CONTRIBUTING*"',
+    '--exclude="*.txt"',
+    '--exclude="*/test/*"',
+    '--exclude="*/tests/*"',
+    '--exclude="*/example/*"',
+    '--exclude="*/examples/*"',
+    '--exclude="*/docs/*"',
+    '--exclude="*/.github/*"'
+  ];
+
   try {
-    // Fast native zip creation with Windows bsdtar
-    const cmd = `tar -a -c -f "${zipOutput}" ${items.join(" ")}`;
+    // Fast native zip creation with Windows bsdtar using exclude flags
+    const cmd = `tar -a -c -f "${zipOutput}" ${excludes.join(" ")} ${items.join(" ")}`;
     execSync(cmd, { cwd: backendDir, stdio: "inherit" });
   } catch (err) {
-    console.log("Fast tar zip failed, falling back to Compress-Archive...");
-    const filesToInclude = items.map(f => `'${path.join(backendDir, f)}'`);
+    console.warn("Fast tar zip failed, falling back to standard zip...", err.message);
+    const filesToInclude = items.map((f) => `'${path.join(backendDir, f)}'`);
     const psCommand = `powershell -NoProfile -Command "$ProgressPreference = 'SilentlyContinue'; Compress-Archive -Path ${filesToInclude.join(", ")} -DestinationPath '${zipOutput}' -CompressionLevel Fastest"`;
     execSync(psCommand, { stdio: "inherit" });
   }
