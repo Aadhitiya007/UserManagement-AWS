@@ -162,7 +162,16 @@ async function runTests() {
     console.log("✓ PASS: handleChat processes message and returns structured JSON response");
   }
 
-  console.log("\n=== AI Assistant Tests: All 8/8 passed ===\n");
+  // 9. Natural language query with price & filler words (The user's exact query)
+  {
+    const res = await processChatMessage({ message: "best headphone in 3000" });
+    assert.ok(Array.isArray(res.products), "Should return array");
+    assert.ok(res.products.length > 0, "Should find headphone under 3000");
+    assert.strictEqual(res.products[0].name, "Wireless ANC Headphones");
+    console.log("✓ PASS: processChatMessage successfully extracts intent & products for 'best headphone in 3000'");
+  }
+
+  console.log("\n=== AI Assistant Tests: All 9/9 passed ===\n");
 }
 
 runTests().catch((err) => {

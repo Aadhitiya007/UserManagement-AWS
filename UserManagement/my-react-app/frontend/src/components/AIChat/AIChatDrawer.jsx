@@ -112,7 +112,7 @@ export default function AIChatDrawer() {
     const id = product.id || product.productId || product._id;
     if (id) {
       setIsOpen(false);
-      navigate(`/products?search=${encodeURIComponent(product.name)}`);
+      navigate(`/products/${id}`);
     }
   };
 
@@ -153,18 +153,6 @@ export default function AIChatDrawer() {
         >
           <Sparkles size={18} />
           <span>Ask AI</span>
-          <span
-            style={{
-              fontSize: "0.65rem",
-              background: "rgba(255, 255, 255, 0.25)",
-              padding: "2px 6px",
-              borderRadius: "12px",
-              textTransform: "uppercase",
-              letterSpacing: "0.05em"
-            }}
-          >
-            Gemini
-          </span>
         </button>
       )}
 
@@ -223,7 +211,7 @@ export default function AIChatDrawer() {
                 </div>
                 <div style={{ display: "flex", alignItems: "center", gap: "5px", fontSize: "0.72rem", color: "#10b981" }}>
                   <span style={{ width: "6px", height: "6px", borderRadius: "50%", background: "#10b981" }} />
-                  <span>Powered by Gemini</span>
+                  <span>Online • Ready to help</span>
                 </div>
               </div>
             </div>
