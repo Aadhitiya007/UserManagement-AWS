@@ -34,7 +34,7 @@ exports.getUserRepository = () => activeUserRepo;
  * POST /api/orders
  */
 exports.createOrder = async (req, res) => {
-  const { products, paymentMethod, couponCode } = req.body;
+  const { products, paymentMethod, couponCode, shippingAddress } = req.body;
 
   if (!products || !Array.isArray(products) || products.length === 0) {
     return res.status(400).json({ message: "Order must contain at least one product." });
@@ -54,7 +54,8 @@ exports.createOrder = async (req, res) => {
       productRepo: activeProductRepo,
       couponRepo: activeCouponRepo,
       paymentMethod: paymentMethod || "Card",
-      couponCode: couponCode || null
+      couponCode: couponCode || null,
+      shippingAddress: shippingAddress || null
     });
 
     const orderPayload = {
@@ -288,5 +289,42 @@ exports.getOrderInvoice = async (req, res) => {
     return res.status(200).send(html);
   } catch (error) {
     return res.status(500).json({ message: error.message || "Failed to generate invoice." });
+  }
+};
+
+/**
+ * 7. Update Pending Order Shipping Address
+ * PUT /api/orders/:id/address
+ */
+exports.updateOrderAddress = async (req, res) => {
+  const { id } = req.params;
+  const { shippingAddress } = req.body;
+
+  if (!shippingAddress || typeof shippingAddress !== "object") {
+    return res.status(400).json({ message: "Valid shippingAddress object is required." });
+  }
+
+  try {
+    const updated = await activeOrderRepo.updateShippingAddress(id, req.user.id, shippingAddress);
+    return res.status(200).json({ message: "Shipping address updated successfully", order: updated });
+  } catch (error) {
+    const statusCode = error.statusCode || 500;
+    return res.status(statusCode).json({ message: error.message });
+  }
+};
+
+/**
+ * 8. Reclaim Abandoned Expired Orders (20-min TTL Worker)
+ * POST /api/orders/reclaim-expired
+ */
+exports.reclaimExpiredOrders = async (req, res) => {
+  try {
+    const result = await activeOrderRepo.reclaimExpiredPendingOrders();
+    return res.status(200).json({
+      message: `Reclaimed ${result.reclaimedCount} abandoned orders out of ${result.totalFound} expired.`,
+      ...result
+    });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
   }
 };

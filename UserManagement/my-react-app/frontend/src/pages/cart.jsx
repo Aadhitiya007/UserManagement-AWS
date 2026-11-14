@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import Navbar from "../components/Navbar";
 import { useCart } from "../context/CartContext";
@@ -12,7 +12,10 @@ import {
   ArrowRight,
   ShieldCheck,
   Truck,
-  AlertTriangle
+  AlertTriangle,
+  MapPin,
+  Plus,
+  CheckCircle
 } from "lucide-react";
 
 function Cart() {
@@ -27,9 +30,110 @@ function Cart() {
   const [couponError, setCouponError] = useState("");
   const [appliedCoupon, setAppliedCoupon] = useState(null);
 
+  // Address Book States
+  const [addresses, setAddresses] = useState([]);
+  const [selectedAddressId, setSelectedAddressId] = useState(null);
+  const [addressLoading, setAddressLoading] = useState(false);
+  const [showAddressForm, setShowAddressForm] = useState(false);
+  const [addressFormData, setAddressFormData] = useState({
+    fullName: "",
+    phone: "",
+    street: "",
+    city: "",
+    state: "",
+    pinCode: "",
+    type: "Home",
+    isDefault: false
+  });
+  const [savingAddress, setSavingAddress] = useState(false);
+  const [addressError, setAddressError] = useState("");
+
   const hasOutOfStockItems = cart.some((item) => item.stock !== undefined && item.stock <= 0);
   const currentUser = JSON.parse(localStorage.getItem("user") || "{}");
   const isStaff = currentUser.role === "admin" || currentUser.role === "manager";
+
+  useEffect(() => {
+    fetchAddresses();
+  }, []);
+
+  async function fetchAddresses() {
+    const token = localStorage.getItem("token");
+    if (!token) return;
+    try {
+      setAddressLoading(true);
+      const res = await fetch(`${API_URL}/api/users/addresses/me`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (res.ok) {
+        const list = await res.json();
+        setAddresses(list);
+        const def = list.find((a) => a.isDefault) || list[0];
+        if (def) setSelectedAddressId(def.addressId);
+      }
+    } catch (err) {
+      console.warn("Could not load addresses:", err.message);
+    } finally {
+      setAddressLoading(false);
+    }
+  }
+
+  async function handleSaveNewAddress(e) {
+    e.preventDefault();
+    const token = localStorage.getItem("token");
+    if (!token) {
+      navigate("/login");
+      return;
+    }
+
+    if (
+      !addressFormData.fullName.trim() ||
+      !addressFormData.phone.trim() ||
+      !addressFormData.street.trim() ||
+      !addressFormData.city.trim() ||
+      !addressFormData.state.trim() ||
+      !addressFormData.pinCode.trim()
+    ) {
+      setAddressError("Please fill out all address fields.");
+      return;
+    }
+
+    try {
+      setSavingAddress(true);
+      setAddressError("");
+      const res = await fetch(`${API_URL}/api/users/addresses/me`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify(addressFormData)
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message || "Failed to save address");
+
+      const created = data.address;
+      setAddresses((prev) => {
+        const updated = created.isDefault ? prev.map((a) => ({ ...a, isDefault: false })) : [...prev];
+        return [...updated, created];
+      });
+      setSelectedAddressId(created.addressId);
+      setShowAddressForm(false);
+      setAddressFormData({
+        fullName: "",
+        phone: "",
+        street: "",
+        city: "",
+        state: "",
+        pinCode: "",
+        type: "Home",
+        isDefault: false
+      });
+    } catch (err) {
+      setAddressError(err.message);
+    } finally {
+      setSavingAddress(false);
+    }
+  }
 
   const subtotal = cart.reduce((sum, item) => sum + item.price * item.quantity, 0);
   const couponDiscount = appliedCoupon ? Number(appliedCoupon.discountAmount || 0) : 0;
@@ -89,6 +193,13 @@ function Cart() {
 
     if (cart.length === 0) return;
 
+    const selectedAddress = addresses.find((a) => a.addressId === selectedAddressId) || null;
+    if (!selectedAddress) {
+      setError("Please add or select a delivery address before proceeding to checkout.");
+      setShowAddressForm(true);
+      return;
+    }
+
     try {
       setLoading(true);
       setError("");
@@ -111,7 +222,8 @@ function Cart() {
         body: JSON.stringify({
           products: orderProducts,
           totalAmount: finalPayable,
-          couponCode: appliedCoupon?.coupon?.code || appliedCoupon?.code || null
+          couponCode: appliedCoupon?.coupon?.code || appliedCoupon?.code || null,
+          shippingAddress: selectedAddress
         })
       });
 
@@ -555,6 +667,197 @@ function Cart() {
                   <p style={{ color: "var(--color-error)", fontSize: "0.82rem", marginTop: "8px", marginBottom: 0 }}>
                     {couponError}
                   </p>
+                )}
+              </div>
+
+              {/* Delivery Address Card */}
+              <div className="card">
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "14px" }}>
+                  <h4 style={{ fontSize: "0.95rem", fontWeight: "700", margin: 0, display: "flex", alignItems: "center", gap: "6px" }}>
+                    <MapPin size={16} color="var(--color-primary)" />
+                    <span>Shipping Destination</span>
+                  </h4>
+                  <button
+                    type="button"
+                    onClick={() => setShowAddressForm((prev) => !prev)}
+                    className="btn btn-secondary btn-sm"
+                    style={{ height: "28px", padding: "0 10px", fontSize: "0.78rem" }}
+                  >
+                    {showAddressForm ? "Cancel" : <><Plus size={13} /> Add Address</>}
+                  </button>
+                </div>
+
+                {addressLoading ? (
+                  <p style={{ color: "var(--color-text-secondary)", fontSize: "0.85rem", margin: 0 }}>Loading address book...</p>
+                ) : addresses.length === 0 && !showAddressForm ? (
+                  <div style={{ padding: "12px 14px", backgroundColor: "var(--color-surface-subtle)", borderRadius: "8px", border: "1px dashed var(--color-border)" }}>
+                    <p style={{ margin: "0 0 8px 0", fontSize: "0.84rem", color: "var(--color-text-secondary)" }}>
+                      No delivery addresses saved yet.
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => setShowAddressForm(true)}
+                      className="btn btn-primary btn-sm"
+                      style={{ fontSize: "0.8rem", width: "100%" }}
+                    >
+                      <Plus size={14} /> Add Delivery Address
+                    </button>
+                  </div>
+                ) : (
+                  <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+                    {!showAddressForm && addresses.map((addr) => {
+                      const isSelected = selectedAddressId === addr.addressId;
+                      return (
+                        <div
+                          key={addr.addressId}
+                          onClick={() => setSelectedAddressId(addr.addressId)}
+                          style={{
+                            padding: "12px 14px",
+                            borderRadius: "10px",
+                            border: isSelected ? "2px solid var(--color-primary)" : "1px solid var(--color-border)",
+                            backgroundColor: isSelected ? "rgba(99, 102, 241, 0.08)" : "var(--color-surface-subtle)",
+                            cursor: "pointer",
+                            transition: "all 0.15s ease"
+                          }}
+                        >
+                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "4px" }}>
+                            <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                              <strong style={{ fontSize: "0.88rem", color: "var(--color-text-primary)" }}>{addr.fullName}</strong>
+                              <span style={{ fontSize: "0.72rem", padding: "1px 6px", borderRadius: "8px", backgroundColor: "var(--color-surface)", border: "1px solid var(--color-border)", fontWeight: "600" }}>
+                                {addr.type || "Home"}
+                              </span>
+                            </div>
+                            {isSelected && (
+                              <span style={{ color: "var(--color-primary)", display: "flex", alignItems: "center", gap: "4px", fontSize: "0.78rem", fontWeight: "700" }}>
+                                <CheckCircle size={14} /> Selected
+                              </span>
+                            )}
+                          </div>
+                          <p style={{ margin: "2px 0 0", fontSize: "0.82rem", color: "var(--color-text-secondary)", lineHeight: "1.4" }}>
+                            {addr.street}, {addr.city}, {addr.state} - {addr.pinCode}
+                          </p>
+                          <p style={{ margin: "2px 0 0", fontSize: "0.78rem", color: "var(--color-text-muted)" }}>
+                            Phone: {addr.phone}
+                          </p>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+
+                {/* Inline Add Address Form */}
+                {showAddressForm && (
+                  <form onSubmit={handleSaveNewAddress} style={{ marginTop: addresses.length > 0 ? "14px" : "0", display: "flex", flexDirection: "column", gap: "10px" }}>
+                    <div style={{ fontSize: "0.85rem", fontWeight: "700", color: "var(--color-text-primary)", borderBottom: "1px solid var(--color-border)", paddingBottom: "6px" }}>
+                      New Shipping Address
+                    </div>
+
+                    <input
+                      type="text"
+                      className="form-control"
+                      placeholder="Recipient Full Name"
+                      value={addressFormData.fullName}
+                      onChange={(e) => setAddressFormData((prev) => ({ ...prev, fullName: e.target.value }))}
+                      required
+                      style={{ fontSize: "0.85rem", padding: "8px 12px" }}
+                    />
+
+                    <input
+                      type="tel"
+                      className="form-control"
+                      placeholder="10-digit Mobile Phone"
+                      value={addressFormData.phone}
+                      onChange={(e) => setAddressFormData((prev) => ({ ...prev, phone: e.target.value }))}
+                      required
+                      style={{ fontSize: "0.85rem", padding: "8px 12px" }}
+                    />
+
+                    <input
+                      type="text"
+                      className="form-control"
+                      placeholder="Street, Flat/House No., Area"
+                      value={addressFormData.street}
+                      onChange={(e) => setAddressFormData((prev) => ({ ...prev, street: e.target.value }))}
+                      required
+                      style={{ fontSize: "0.85rem", padding: "8px 12px" }}
+                    />
+
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px" }}>
+                      <input
+                        type="text"
+                        className="form-control"
+                        placeholder="City"
+                        value={addressFormData.city}
+                        onChange={(e) => setAddressFormData((prev) => ({ ...prev, city: e.target.value }))}
+                        required
+                        style={{ fontSize: "0.85rem", padding: "8px 12px" }}
+                      />
+                      <input
+                        type="text"
+                        className="form-control"
+                        placeholder="State"
+                        value={addressFormData.state}
+                        onChange={(e) => setAddressFormData((prev) => ({ ...prev, state: e.target.value }))}
+                        required
+                        style={{ fontSize: "0.85rem", padding: "8px 12px" }}
+                      />
+                    </div>
+
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px" }}>
+                      <input
+                        type="text"
+                        className="form-control"
+                        placeholder="6-digit PIN Code"
+                        value={addressFormData.pinCode}
+                        onChange={(e) => setAddressFormData((prev) => ({ ...prev, pinCode: e.target.value }))}
+                        required
+                        style={{ fontSize: "0.85rem", padding: "8px 12px" }}
+                      />
+                      <select
+                        className="form-control"
+                        value={addressFormData.type}
+                        onChange={(e) => setAddressFormData((prev) => ({ ...prev, type: e.target.value }))}
+                        style={{ fontSize: "0.85rem", padding: "8px 12px" }}
+                      >
+                        <option value="Home">Home</option>
+                        <option value="Work">Work</option>
+                        <option value="Other">Other</option>
+                      </select>
+                    </div>
+
+                    <label style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "0.82rem", cursor: "pointer", color: "var(--color-text-secondary)" }}>
+                      <input
+                        type="checkbox"
+                        checked={addressFormData.isDefault}
+                        onChange={(e) => setAddressFormData((prev) => ({ ...prev, isDefault: e.target.checked }))}
+                      />
+                      <span>Make this my default shipping address</span>
+                    </label>
+
+                    {addressError && (
+                      <p style={{ color: "var(--color-error)", fontSize: "0.8rem", margin: 0 }}>
+                        {addressError}
+                      </p>
+                    )}
+
+                    <div style={{ display: "flex", gap: "8px", marginTop: "4px" }}>
+                      <button
+                        type="submit"
+                        className="btn btn-primary btn-sm"
+                        disabled={savingAddress}
+                        style={{ flex: 1 }}
+                      >
+                        {savingAddress ? "Saving..." : "Save & Deliver Here"}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setShowAddressForm(false)}
+                        className="btn btn-secondary btn-sm"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </form>
                 )}
               </div>
 

@@ -109,3 +109,65 @@ exports.deleteUser = async (req, res) => {
     res.status(statusCode).json({ message: error.message });
   }
 };
+
+/**
+ * 6. Address Book - Get Addresses
+ * GET /api/users/addresses/me
+ */
+exports.getAddresses = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const addresses = await activeUserRepo.getAddresses(userId);
+    return res.json(addresses);
+  } catch (error) {
+    const statusCode = error.statusCode || 500;
+    return res.status(statusCode).json({ message: error.message });
+  }
+};
+
+/**
+ * 7. Address Book - Add Address
+ * POST /api/users/addresses/me
+ */
+exports.addAddress = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const newAddress = await activeUserRepo.addAddress(userId, req.body);
+    return res.status(201).json({ message: "Address added successfully", address: newAddress });
+  } catch (error) {
+    const statusCode = error.statusCode || 400;
+    return res.status(statusCode).json({ message: error.message });
+  }
+};
+
+/**
+ * 8. Address Book - Update Address
+ * PUT /api/users/addresses/me/:addressId
+ */
+exports.updateAddress = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const { addressId } = req.params;
+    const updated = await activeUserRepo.updateAddress(userId, addressId, req.body);
+    return res.json({ message: "Address updated successfully", address: updated });
+  } catch (error) {
+    const statusCode = error.statusCode || 400;
+    return res.status(statusCode).json({ message: error.message });
+  }
+};
+
+/**
+ * 9. Address Book - Delete Address
+ * DELETE /api/users/addresses/me/:addressId
+ */
+exports.deleteAddress = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const { addressId } = req.params;
+    const result = await activeUserRepo.deleteAddress(userId, addressId);
+    return res.json({ message: "Address removed successfully", ...result });
+  } catch (error) {
+    const statusCode = error.statusCode || 400;
+    return res.status(statusCode).json({ message: error.message });
+  }
+};

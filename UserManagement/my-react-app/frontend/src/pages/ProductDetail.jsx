@@ -18,6 +18,89 @@ import {
   Lock
 } from "lucide-react";
 
+const COLOR_HEX_MAP = {
+  // Titanium & Metallic
+  "natural titanium": "#b8b2a8",
+  "titanium gray": "#7a7b80",
+  "blue titanium": "#3b4454",
+  "black titanium": "#2c2c2e",
+  "titanium black": "#1f2022",
+  "titanium violet": "#524d5b",
+  "carbon gray dlc titanium": "#3a3c3e",
+  "silver chrome": "#e8e9ec",
+  "platinum silver": "#d6d8db",
+  "platinum white": "#f5f6f8",
+
+  // Blacks & Darks
+  "black": "#121212",
+  "classic black": "#18181b",
+  "midnight": "#0f172a",
+  "midnight black": "#111827",
+  "space black": "#1a1a1c",
+  "space gray": "#4b4846",
+  "phantom black": "#1a1a1a",
+  "obsidian": "#1d1f21",
+  "silky black": "#1e1e1e",
+  "triple black": "#0d0d0d",
+  "carbon black": "#212529",
+  "black vegan leather": "#1a1918",
+  "washed black": "#2d3139",
+  "charcoal": "#334155",
+  "charcoal grey": "#374151",
+  "graphite": "#374151",
+  "graphite black": "#27272a",
+  "eclipse gray": "#3b3d42",
+
+  // Whites & Light Tones
+  "white": "#f8fafc",
+  "shell white": "#f3f4f6",
+  "white smoke": "#f1f5f9",
+  "white vegan leather": "#f4f4f0",
+  "white joy-con": "#f8fafc",
+  "silver": "#e2e8f0",
+  "silver grey": "#cbd5e1",
+  "fog gray": "#94a3b8",
+  "starlight": "#f5f2e9",
+  "cream": "#fef08a",
+  "porcelain": "#f1f5f9",
+  "white/pure platinum": "#f8fafc",
+  "optic white": "#ffffff",
+  "pale grey": "#e2e8f0",
+
+  // Blues
+  "blue": "#2563eb",
+  "bay blue": "#7ba4db",
+  "sky blue": "#38bdf8",
+  "icy blue": "#bae6fd",
+  "navy": "#1e3a8a",
+  "raw indigo": "#1e293b",
+  "vintage faded wash": "#64748b",
+
+  // Greens
+  "green": "#16a34a",
+  "flowy emerald": "#047857",
+  "sage green": "#84a98c",
+  "dark olive": "#3f4739",
+  "forest green": "#166534",
+
+  // Pinks & Purples & Warms
+  "pink": "#ec4899",
+  "smoky pink": "#db7093",
+  "dusty rose": "#be185d",
+  "magenta": "#d946ef",
+  "purple": "#9333ea",
+  "yellow": "#eab308",
+  "oatmeal": "#e2d9cc",
+  "oatmeal heather": "#d5ccc0",
+  "sandstone": "#d4b996",
+  "beige": "#f5f5dc",
+  "brown": "#78350f",
+
+  // Special Edition themes
+  "neon red / neon blue": "#ff3c28",
+  "zelda tears of the kingdom": "#0ea5e9"
+};
+
 function ProductDetail() {
   const { id } = useParams();
   const [product, setProduct] = useState(null);
@@ -27,6 +110,7 @@ function ProductDetail() {
   const [buying, setBuying] = useState(false);
   const [addedFeedback, setAddedFeedback] = useState(false);
   const [selectedAttributes, setSelectedAttributes] = useState({});
+  const [activeImageOverride, setActiveImageOverride] = useState(null);
 
   // Verified Buyer & Review States
   const [canReview, setCanReview] = useState(false);
@@ -40,6 +124,7 @@ function ProductDetail() {
   const navigate = useNavigate();
 
   useEffect(() => {
+    setActiveImageOverride(null);
     fetchProductDetails();
     checkPurchaseEligibility();
   }, [id]);
@@ -143,6 +228,98 @@ function ProductDetail() {
   const currentMRP = activeVariant?.mrp !== undefined ? Number(activeVariant.mrp) : (product?.mrp || Math.round(currentPrice * 1.3));
   const currentStock = activeVariant?.stock !== undefined ? Number(activeVariant.stock) : Number(product?.stock || 0);
   const currentImage = activeVariant?.image || product?.imageUrl || product?.image || "https://placehold.co/500x400?text=No+Image";
+  const currentDisplayImage = activeImageOverride || currentImage;
+
+  // Flatten catalog base image, extra angles, and all distinct variant images into interactive gallery
+  const galleryImages = useMemo(() => {
+    if (!product) return [];
+    const list = [];
+    const seenUrls = new Set();
+
+    const mainImg = product.imageUrl || product.image;
+    if (mainImg) {
+      list.push({
+        url: mainImg,
+        label: "Primary View",
+        colorHex: null,
+        variant: null
+      });
+      seenUrls.add(mainImg);
+    }
+
+    if (Array.isArray(product.images)) {
+      product.images.forEach((img, idx) => {
+        if (img && !seenUrls.has(img)) {
+          list.push({
+            url: img,
+            label: `Angle ${idx + 2}`,
+            colorHex: null,
+            variant: null
+          });
+          seenUrls.add(img);
+        }
+      });
+    }
+
+    if (Array.isArray(product.variants)) {
+      product.variants.forEach((v) => {
+        if (v.image && !seenUrls.has(v.image)) {
+          const colorVal = v.attributes?.["Color"] ||
+                           v.attributes?.["Color Theme"] ||
+                           v.attributes?.["Finish"] ||
+                           v.attributes?.["Wash"] ||
+                           v.attributes?.["Chassis Color"] ||
+                           v.attributes?.["Band Color"];
+          const normalized = colorVal ? String(colorVal).toLowerCase().trim() : null;
+          const colorHex = normalized ? COLOR_HEX_MAP[normalized] : null;
+
+          list.push({
+            url: v.image,
+            label: colorVal || v.name || "Variant",
+            colorHex,
+            variant: v
+          });
+          seenUrls.add(v.image);
+        }
+      });
+    }
+
+    return list;
+  }, [product]);
+
+  function handleAttributeSelect(attrName, option) {
+    setActiveImageOverride(null);
+    setSelectedAttributes((prev) => {
+      const next = { ...prev, [attrName]: option };
+
+      if (Array.isArray(product?.variants) && product.variants.length > 0) {
+        // If exact combination exists, use it
+        const exact = product.variants.find((v) =>
+          v.attributes && Object.entries(next).every(([k, val]) => v.attributes[k] === val)
+        );
+        if (exact) return next;
+
+        // If not, find closest variant that matches this newly chosen option (especially color)
+        const partial = product.variants.find((v) =>
+          v.attributes && v.attributes[attrName] === option
+        );
+        if (partial && partial.attributes) {
+          return { ...partial.attributes, [attrName]: option };
+        }
+      }
+      return next;
+    });
+  }
+
+  function handleThumbnailClick(imgItem) {
+    setActiveImageOverride(imgItem.url);
+    if (imgItem.variant && imgItem.variant.attributes) {
+      setSelectedAttributes((prev) => ({
+        ...prev,
+        ...imgItem.variant.attributes
+      }));
+    }
+  }
 
   const handleAddToCart = throttle(() => {
     if (!product) return;
@@ -151,7 +328,7 @@ function ProductDetail() {
       price: currentPrice,
       mrp: currentMRP,
       stock: currentStock,
-      image: currentImage,
+      image: currentDisplayImage,
       selectedVariant: activeVariant
     };
     addToCart(itemToAdd, quantity);
@@ -168,6 +345,35 @@ function ProductDetail() {
     }
     try {
       setBuying(true);
+
+      // Check for user's default shipping address
+      let defaultAddress = null;
+      try {
+        const addrRes = await fetch(`${API_URL}/api/users/addresses/me`, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        if (addrRes.ok) {
+          const addrList = await addrRes.json();
+          defaultAddress = addrList.find((a) => a.isDefault) || addrList[0] || null;
+        }
+      } catch (addrErr) {
+        console.warn("Could not prefetch address:", addrErr.message);
+      }
+
+      // If user has no delivery address on file, take them to cart to add one
+      if (!defaultAddress) {
+        addToCart({
+          ...product,
+          price: currentPrice,
+          mrp: currentMRP,
+          stock: currentStock,
+          image: currentDisplayImage,
+          selectedVariant: activeVariant
+        }, quantity);
+        navigate("/cart");
+        return;
+      }
+
       const res = await fetch(`${API_URL}/api/orders`, {
         method: "POST",
         headers: {
@@ -181,11 +387,12 @@ function ProductDetail() {
               name: product.name,
               price: currentPrice,
               quantity: quantity,
-              image: currentImage,
+              image: currentDisplayImage,
               variant: activeVariant || null
             }
           ],
-          totalAmount: currentPrice * quantity
+          totalAmount: currentPrice * quantity,
+          shippingAddress: defaultAddress
         })
       });
       const data = await res.json();
@@ -225,7 +432,6 @@ function ProductDetail() {
   }
 
   const pId = product._id || product.id;
-  const imageUrl = currentImage;
   const isOutOfStock = currentStock <= 0;
   const isLowStock = !isOutOfStock && currentStock <= 5;
   const inWishlist = isInWishlist(pId);
@@ -266,18 +472,24 @@ function ProductDetail() {
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "center",
-                marginBottom: "24px",
+                marginBottom: galleryImages.length > 1 ? "12px" : "24px",
                 position: "relative"
               }}
             >
               <img
-                src={imageUrl}
+                key={currentDisplayImage}
+                src={currentDisplayImage}
                 alt={product.name}
                 onError={(e) => {
                   e.currentTarget.onerror = null;
                   e.currentTarget.src = "https://placehold.co/500x400?text=No+Image";
                 }}
-                style={{ width: "100%", height: "100%", objectFit: "cover" }}
+                style={{
+                  width: "100%",
+                  height: "100%",
+                  objectFit: "cover",
+                  transition: "opacity 0.25s ease-in-out"
+                }}
               />
 
               <div style={{ position: "absolute", top: "16px", left: "16px" }}>
@@ -291,6 +503,73 @@ function ProductDetail() {
               </div>
             </div>
 
+            {/* Interactive Image Gallery / Color Variant Thumbnails Strip */}
+            {galleryImages.length > 1 && (
+              <div
+                style={{
+                  display: "flex",
+                  gap: "10px",
+                  overflowX: "auto",
+                  paddingBottom: "8px",
+                  marginBottom: "24px",
+                  scrollbarWidth: "thin"
+                }}
+              >
+                {galleryImages.map((imgItem, idx) => {
+                  const isActive = currentDisplayImage === imgItem.url;
+                  return (
+                    <button
+                      key={`${imgItem.url}_${idx}`}
+                      type="button"
+                      onClick={() => handleThumbnailClick(imgItem)}
+                      title={`View ${imgItem.label}`}
+                      style={{
+                        position: "relative",
+                        flexShrink: 0,
+                        width: "66px",
+                        height: "66px",
+                        borderRadius: "8px",
+                        overflow: "hidden",
+                        border: isActive ? "2px solid var(--color-primary)" : "1px solid var(--color-border)",
+                        outline: isActive ? "2px solid rgba(99, 102, 241, 0.35)" : "none",
+                        padding: 0,
+                        cursor: "pointer",
+                        backgroundColor: "var(--color-surface-subtle)",
+                        transition: "all 0.18s ease",
+                        opacity: isActive ? 1 : 0.68,
+                        transform: isActive ? "scale(1.02)" : "scale(1)"
+                      }}
+                    >
+                      <img
+                        src={imgItem.url}
+                        alt={imgItem.label}
+                        onError={(e) => {
+                          e.currentTarget.onerror = null;
+                          e.currentTarget.src = "https://placehold.co/100x100?text=Image";
+                        }}
+                        style={{ width: "100%", height: "100%", objectFit: "cover" }}
+                      />
+                      {imgItem.colorHex && (
+                        <span
+                          style={{
+                            position: "absolute",
+                            bottom: "3px",
+                            right: "3px",
+                            width: "12px",
+                            height: "12px",
+                            borderRadius: "50%",
+                            backgroundColor: imgItem.colorHex,
+                            border: "1.5px solid #ffffff",
+                            boxShadow: "0 1px 3px rgba(0,0,0,0.3)"
+                          }}
+                        />
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+
             {/* Specifications Card */}
             <div className="card">
               <h3 style={{ fontSize: "1rem", fontWeight: "700", marginBottom: "14px" }}>
@@ -301,12 +580,14 @@ function ProductDetail() {
                   <span style={{ color: "var(--color-text-secondary)" }}>Category</span>
                   <strong style={{ color: "var(--color-text-primary)" }}>{product.category || "General"}</strong>
                 </div>
-                <div style={{ display: "flex", justifyContent: "space-between", paddingBottom: "8px", borderBottom: "1px solid var(--color-border)" }}>
-                  <span style={{ color: "var(--color-text-secondary)" }}>Availability</span>
-                  <strong style={{ color: isOutOfStock ? "var(--color-error)" : isLowStock ? "var(--color-warning)" : "var(--color-success)" }}>
-                    {isOutOfStock ? "Out of Stock" : isLowStock ? `Low Stock (Only ${currentStock} remaining)` : `In Stock (${currentStock} units)`}
-                  </strong>
-                </div>
+                {(isOutOfStock || isLowStock) && (
+                  <div style={{ display: "flex", justifyContent: "space-between", paddingBottom: "8px", borderBottom: "1px solid var(--color-border)" }}>
+                    <span style={{ color: "var(--color-text-secondary)" }}>Availability</span>
+                    <strong style={{ color: isOutOfStock ? "var(--color-error)" : "var(--color-warning)" }}>
+                      {isOutOfStock ? "Out of Stock" : `Low Stock (Only ${currentStock} remaining)`}
+                    </strong>
+                  </div>
+                )}
                 <div style={{ display: "flex", justifyContent: "space-between" }}>
                   <span style={{ color: "var(--color-text-secondary)" }}>Warranty</span>
                   <strong style={{ color: "var(--color-text-primary)" }}>1 Year Manufacturer Assurance</strong>
@@ -409,44 +690,100 @@ function ProductDetail() {
                   gap: "16px"
                 }}
               >
-                {product.variantAttributes.map((attr) => (
-                  <div key={attr.name}>
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px" }}>
-                      <span style={{ fontSize: "0.82rem", fontWeight: "700", color: "var(--color-text-primary)", textTransform: "uppercase", letterSpacing: "0.05em" }}>
-                        {attr.name}
-                      </span>
-                      <span style={{ fontSize: "0.82rem", fontWeight: "600", color: "var(--color-primary)" }}>
-                        {selectedAttributes[attr.name] || attr.options?.[0]}
-                      </span>
-                    </div>
+                {product.variantAttributes.map((attr) => {
+                  const isColorAttr = /color|colour|finish|theme|wash/i.test(attr.name);
+                  const selectedVal = selectedAttributes[attr.name] || attr.options?.[0];
 
-                    <div style={{ display: "flex", flexWrap: "wrap", gap: "8px" }}>
-                      {Array.isArray(attr.options) && attr.options.map((option) => {
-                        const isSelected = (selectedAttributes[attr.name] || attr.options[0]) === option;
-                        return (
-                          <button
-                            key={option}
-                            type="button"
-                            onClick={() => setSelectedAttributes((prev) => ({ ...prev, [attr.name]: option }))}
-                            style={{
-                              padding: "8px 16px",
-                              borderRadius: "8px",
-                              fontSize: "0.85rem",
-                              fontWeight: isSelected ? "700" : "500",
-                              cursor: "pointer",
-                              transition: "all 0.15s ease",
-                              border: isSelected ? "2px solid var(--color-primary)" : "1px solid var(--color-border)",
-                              backgroundColor: isSelected ? "rgba(99, 102, 241, 0.14)" : "var(--color-surface-subtle)",
-                              color: isSelected ? "var(--color-primary)" : "var(--color-text-primary)"
-                            }}
-                          >
-                            {option}
-                          </button>
-                        );
-                      })}
+                  return (
+                    <div key={attr.name}>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px" }}>
+                        <span style={{ fontSize: "0.82rem", fontWeight: "700", color: "var(--color-text-primary)", textTransform: "uppercase", letterSpacing: "0.05em" }}>
+                          {attr.name}
+                        </span>
+                        <span style={{ fontSize: "0.82rem", fontWeight: "600", color: "var(--color-primary)" }}>
+                          {selectedVal}
+                        </span>
+                      </div>
+
+                      <div style={{ display: "flex", flexWrap: "wrap", gap: "8px" }}>
+                        {Array.isArray(attr.options) && attr.options.map((option) => {
+                          const isSelected = selectedVal === option;
+                          const normalizedColor = option.toLowerCase().trim();
+                          const colorHex = isColorAttr ? (COLOR_HEX_MAP[normalizedColor] || null) : null;
+
+                          if (isColorAttr && colorHex) {
+                            return (
+                              <button
+                                key={option}
+                                type="button"
+                                onClick={() => handleAttributeSelect(attr.name, option)}
+                                title={`Select ${attr.name}: ${option}`}
+                                style={{
+                                  display: "inline-flex",
+                                  alignItems: "center",
+                                  gap: "8px",
+                                  padding: "6px 14px 6px 8px",
+                                  borderRadius: "20px",
+                                  fontSize: "0.84rem",
+                                  fontWeight: isSelected ? "700" : "500",
+                                  cursor: "pointer",
+                                  transition: "all 0.18s ease",
+                                  border: isSelected
+                                    ? "2px solid var(--color-primary)"
+                                    : "1px solid var(--color-border)",
+                                  backgroundColor: isSelected
+                                    ? "rgba(99, 102, 241, 0.12)"
+                                    : "var(--color-surface-subtle)",
+                                  color: isSelected
+                                    ? "var(--color-primary)"
+                                    : "var(--color-text-primary)",
+                                  boxShadow: isSelected
+                                    ? "0 0 0 2px rgba(99, 102, 241, 0.25)"
+                                    : "none"
+                                }}
+                              >
+                                <span
+                                  style={{
+                                    width: "18px",
+                                    height: "18px",
+                                    borderRadius: "50%",
+                                    backgroundColor: colorHex,
+                                    border: "1.5px solid rgba(0,0,0,0.18)",
+                                    boxShadow: "inset 0 1px 2px rgba(0,0,0,0.1)",
+                                    display: "inline-block",
+                                    flexShrink: 0
+                                  }}
+                                />
+                                <span>{option}</span>
+                              </button>
+                            );
+                          }
+
+                          return (
+                            <button
+                              key={option}
+                              type="button"
+                              onClick={() => handleAttributeSelect(attr.name, option)}
+                              style={{
+                                padding: "8px 16px",
+                                borderRadius: "8px",
+                                fontSize: "0.85rem",
+                                fontWeight: isSelected ? "700" : "500",
+                                cursor: "pointer",
+                                transition: "all 0.15s ease",
+                                border: isSelected ? "2px solid var(--color-primary)" : "1px solid var(--color-border)",
+                                backgroundColor: isSelected ? "rgba(99, 102, 241, 0.14)" : "var(--color-surface-subtle)",
+                                color: isSelected ? "var(--color-primary)" : "var(--color-text-primary)"
+                              }}
+                            >
+                              {option}
+                            </button>
+                          );
+                        })}
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
 

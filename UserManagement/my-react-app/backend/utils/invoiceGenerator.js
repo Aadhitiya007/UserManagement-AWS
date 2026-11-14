@@ -71,9 +71,16 @@ function generateInvoiceHtml(order, options = {}) {
     <div class="meta-grid">
       <div class="meta-box">
         <h4>Billed & Shipped To:</h4>
-        <strong>${order.userName || "Valued Customer"}</strong><br>
-        Email: ${order.userEmail || "customer@example.com"}<br>
-        Customer ID: ${order.userId}
+        <strong>${order.shippingAddress?.fullName || order.userName || "Valued Customer"}</strong><br>
+        ${
+          order.shippingAddress
+            ? `${order.shippingAddress.street}<br>
+               ${order.shippingAddress.city}, ${order.shippingAddress.state} - ${order.shippingAddress.pinCode}<br>
+               Phone: ${order.shippingAddress.phone}<br>
+               Email: ${order.userEmail || ""}`
+            : `Email: ${order.userEmail || "customer@example.com"}<br>
+               Customer ID: ${order.userId}`
+        }
       </div>
       <div class="meta-box" style="text-align: right;">
         <h4>Order & Payment Details:</h4>

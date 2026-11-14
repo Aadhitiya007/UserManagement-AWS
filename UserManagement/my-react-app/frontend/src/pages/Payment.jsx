@@ -8,7 +8,9 @@ import {
   AlertCircle, 
   Lock, 
   Smartphone, 
-  Building2 
+  Building2,
+  MapPin,
+  Clock
 } from "lucide-react";
 import Navbar from "../components/Navbar";
 import { useCart } from "../context/CartContext";
@@ -41,6 +43,8 @@ function Payment() {
   const [rzpLoading, setRzpLoading] = useState(false);
   const [error, setError] = useState("");
   const [cancelledNotice, setCancelledNotice] = useState(false);
+  const [timeLeft, setTimeLeft] = useState(null);
+  const [isExpired, setIsExpired] = useState(false);
 
   useEffect(() => {
     if (searchParams.get("cancelled") === "true") {
@@ -48,6 +52,26 @@ function Payment() {
     }
     fetchOrderDetails();
   }, [orderId]);
+
+  useEffect(() => {
+    if (!order?.expiresAt) return;
+
+    function updateTimer() {
+      const remaining = Math.max(0, Math.floor(order.expiresAt - Math.floor(Date.now() / 1000)));
+      setTimeLeft(remaining);
+      if (remaining <= 0) {
+        setIsExpired(true);
+      }
+    }
+
+    updateTimer();
+    const interval = setInterval(updateTimer, 1000);
+    return () => clearInterval(interval);
+  }, [order?.expiresAt]);
+
+  const minutes = timeLeft !== null ? Math.floor(timeLeft / 60) : 20;
+  const seconds = timeLeft !== null ? timeLeft % 60 : 0;
+  const formattedCountdown = `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
 
   async function fetchOrderDetails() {
     const token = localStorage.getItem("token");
@@ -318,9 +342,45 @@ function Payment() {
             <h1 style={{ fontSize: "1.75rem", fontWeight: 800, color: "#ffffff", letterSpacing: "-0.02em", margin: "0 0 6px 0" }}>
               Secure Checkout
             </h1>
-            <p style={{ color: "#94a3b8", fontSize: "0.92rem", margin: "0 0 24px 0", lineHeight: 1.5 }}>
+            <p style={{ color: "#94a3b8", fontSize: "0.92rem", margin: "0 0 20px 0", lineHeight: 1.5 }}>
               Complete your order payment via UPI, Cards, NetBanking, or Wallets.
             </p>
+
+            {/* 20-Minute Inventory Reservation Timer Banner */}
+            {isExpired ? (
+              <div style={{
+                background: "rgba(239, 68, 68, 0.12)",
+                border: "1px solid rgba(239, 68, 68, 0.35)",
+                borderRadius: "12px",
+                padding: "14px 16px",
+                marginBottom: "20px",
+                color: "#f87171",
+                fontSize: "0.88rem"
+              }}>
+                <strong style={{ display: "block", marginBottom: "4px" }}>⚠️ 20-Minute Reservation Expired</strong>
+                The inventory reserved for this order has been automatically released back to stock. Please return to your cart to re-order.
+              </div>
+            ) : order?.expiresAt ? (
+              <div style={{
+                background: "rgba(99, 102, 241, 0.12)",
+                border: "1px solid rgba(99, 102, 241, 0.3)",
+                borderRadius: "12px",
+                padding: "10px 14px",
+                marginBottom: "20px",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                fontSize: "0.85rem"
+              }}>
+                <div style={{ display: "flex", alignItems: "center", gap: "8px", color: "#818cf8" }}>
+                  <Clock size={16} />
+                  <span>Stock reserved for this checkout session</span>
+                </div>
+                <strong style={{ color: "#ffffff", background: "rgba(99, 102, 241, 0.3)", padding: "2px 8px", borderRadius: "6px", fontFamily: "ui-monospace, monospace" }}>
+                  {formattedCountdown}
+                </strong>
+              </div>
+            ) : null}
 
             {cancelledNotice && (
               <div style={{
@@ -355,6 +415,35 @@ function Payment() {
                   #{orderId.slice(-8).toUpperCase()}
                 </span>
               </div>
+
+              {/* Delivery Address Summary */}
+              {order.shippingAddress && (
+                <div style={{
+                  display: "flex",
+                  alignItems: "flex-start",
+                  gap: "10px",
+                  padding: "12px 14px",
+                  borderRadius: "10px",
+                  backgroundColor: "rgba(255, 255, 255, 0.04)",
+                  border: "1px solid rgba(255, 255, 255, 0.08)",
+                  marginBottom: "14px",
+                  fontSize: "0.84rem"
+                }}>
+                  <MapPin size={16} color="#818cf8" style={{ marginTop: "2px", flexShrink: 0 }} />
+                  <div style={{ color: "#cbd5e1", lineHeight: "1.5" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "2px" }}>
+                      <strong style={{ color: "#ffffff" }}>{order.shippingAddress.fullName || order.userName}</strong>
+                      {order.shippingAddress.type && (
+                        <span style={{ fontSize: "0.72rem", background: "rgba(99, 102, 241, 0.2)", color: "#a5b4fc", padding: "1px 6px", borderRadius: "8px", fontWeight: "600" }}>
+                          {order.shippingAddress.type}
+                        </span>
+                      )}
+                    </div>
+                    <div>{order.shippingAddress.street}, {order.shippingAddress.city}, {order.shippingAddress.state} - {order.shippingAddress.pinCode}</div>
+                    <div style={{ color: "#94a3b8", fontSize: "0.8rem" }}>Phone: {order.shippingAddress.phone}</div>
+                  </div>
+                </div>
+              )}
 
               {/* Items List */}
               {Array.isArray(order.products) && order.products.length > 0 && (
@@ -398,8 +487,8 @@ function Payment() {
             <div style={{ marginBottom: "20px" }}>
               <button
                 type="button"
-                onClick={handleProceedToPay}
-                disabled={rzpLoading || processing}
+                onClick={isExpired ? handleCancelToCart : handleProceedToPay}
+                disabled={!isExpired && (rzpLoading || processing)}
                 style={{
                   width: "100%",
                   padding: "16px 20px",
@@ -410,19 +499,23 @@ function Payment() {
                   justifyContent: "center",
                   gap: "10px",
                   borderRadius: "14px",
-                  background: rzpLoading || processing 
+                  background: isExpired
+                    ? "rgba(239, 68, 68, 0.2)"
+                    : rzpLoading || processing 
                     ? "var(--color-border, #334155)" 
                     : "linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%)",
-                  color: "#ffffff",
-                  border: "none",
-                  cursor: rzpLoading || processing ? "not-allowed" : "pointer",
-                  boxShadow: rzpLoading || processing 
-                    ? "none" 
-                    : "0 8px 24px rgba(37, 99, 235, 0.35)",
+                  color: isExpired ? "#f87171" : "#ffffff",
+                  border: isExpired ? "1px solid rgba(239, 68, 68, 0.4)" : "none",
+                  cursor: !isExpired && (rzpLoading || processing) ? "not-allowed" : "pointer",
+                  boxShadow: !isExpired && !(rzpLoading || processing)
+                    ? "0 8px 24px rgba(37, 99, 235, 0.35)" 
+                    : "none",
                   transition: "all 0.2s ease"
                 }}
               >
-                {rzpLoading || processing ? (
+                {isExpired ? (
+                  <>Return to Cart & Re-Order</>
+                ) : rzpLoading || processing ? (
                   <>Processing Payment...</>
                 ) : (
                   <>

@@ -28,6 +28,7 @@ class UserRepository {
       country: item.country,
       phone: item.phone,
       isEmailVerified: item.isEmailVerified === true,
+      addresses: Array.isArray(item.addresses) ? item.addresses : [],
       createdAt: item.createdAt,
       updatedAt: item.updatedAt
     };
@@ -589,6 +590,155 @@ class UserRepository {
       })
     );
     return { success: true };
+  }
+
+  /**
+   * Address Book Management
+   */
+  async getAddresses(userId) {
+    const user = await this.findById(userId);
+    if (!user) {
+      const err = new Error("User not found");
+      err.statusCode = 404;
+      throw err;
+    }
+    return user.addresses || [];
+  }
+
+  async addAddress(userId, addressData) {
+    const user = await this.findById(userId);
+    if (!user) {
+      const err = new Error("User not found");
+      err.statusCode = 404;
+      throw err;
+    }
+
+    const { fullName, phone, street, city, state, pinCode, type = "Home", isDefault = false } = addressData;
+    if (!fullName || !phone || !street || !city || !state || !pinCode) {
+      const err = new Error("Full name, phone, street, city, state, and pin code are required.");
+      err.statusCode = 400;
+      throw err;
+    }
+
+    const currentAddresses = user.addresses || [];
+    const isFirst = currentAddresses.length === 0;
+    const makeDefault = isDefault || isFirst;
+
+    const newAddress = {
+      addressId: `addr_${crypto.randomUUID()}`,
+      fullName: String(fullName).trim(),
+      phone: String(phone).trim(),
+      street: String(street).trim(),
+      city: String(city).trim(),
+      state: String(state).trim(),
+      pinCode: String(pinCode).trim(),
+      type: ["Home", "Work", "Other"].includes(type) ? type : "Home",
+      isDefault: makeDefault,
+      createdAt: new Date().toISOString()
+    };
+
+    const updatedList = currentAddresses.map((a) => (makeDefault ? { ...a, isDefault: false } : a));
+    updatedList.push(newAddress);
+
+    await this.docClient.send(
+      new UpdateCommand({
+        TableName: this.tableName,
+        Key: { userId },
+        UpdateExpression: "SET addresses = :addrList, updatedAt = :now",
+        ExpressionAttributeValues: {
+          ":addrList": updatedList,
+          ":now": new Date().toISOString()
+        }
+      })
+    );
+
+    return newAddress;
+  }
+
+  async updateAddress(userId, addressId, updateData) {
+    const user = await this.findById(userId);
+    if (!user) {
+      const err = new Error("User not found");
+      err.statusCode = 404;
+      throw err;
+    }
+
+    const currentAddresses = user.addresses || [];
+    const targetIdx = currentAddresses.findIndex((a) => a.addressId === addressId);
+    if (targetIdx === -1) {
+      const err = new Error("Address not found");
+      err.statusCode = 404;
+      throw err;
+    }
+
+    const makeDefault = updateData.isDefault === true;
+
+    const updatedList = currentAddresses.map((a, idx) => {
+      if (idx === targetIdx) {
+        return {
+          ...a,
+          fullName: updateData.fullName !== undefined ? String(updateData.fullName).trim() : a.fullName,
+          phone: updateData.phone !== undefined ? String(updateData.phone).trim() : a.phone,
+          street: updateData.street !== undefined ? String(updateData.street).trim() : a.street,
+          city: updateData.city !== undefined ? String(updateData.city).trim() : a.city,
+          state: updateData.state !== undefined ? String(updateData.state).trim() : a.state,
+          pinCode: updateData.pinCode !== undefined ? String(updateData.pinCode).trim() : a.pinCode,
+          type: updateData.type !== undefined ? updateData.type : a.type,
+          isDefault: makeDefault ? true : (updateData.isDefault === false ? false : a.isDefault),
+          updatedAt: new Date().toISOString()
+        };
+      }
+      return makeDefault ? { ...a, isDefault: false } : a;
+    });
+
+    await this.docClient.send(
+      new UpdateCommand({
+        TableName: this.tableName,
+        Key: { userId },
+        UpdateExpression: "SET addresses = :addrList, updatedAt = :now",
+        ExpressionAttributeValues: {
+          ":addrList": updatedList,
+          ":now": new Date().toISOString()
+        }
+      })
+    );
+
+    return updatedList.find((a) => a.addressId === addressId);
+  }
+
+  async deleteAddress(userId, addressId) {
+    const user = await this.findById(userId);
+    if (!user) {
+      const err = new Error("User not found");
+      err.statusCode = 404;
+      throw err;
+    }
+
+    const currentAddresses = user.addresses || [];
+    const filtered = currentAddresses.filter((a) => a.addressId !== addressId);
+    if (filtered.length === currentAddresses.length) {
+      const err = new Error("Address not found");
+      err.statusCode = 404;
+      throw err;
+    }
+
+    if (filtered.length > 0 && !filtered.some((a) => a.isDefault)) {
+      filtered[0].isDefault = true;
+    }
+
+    await this.docClient.send(
+      new UpdateCommand({
+        TableName: this.tableName,
+        Key: { userId },
+        UpdateExpression: "SET addresses = :addrList, updatedAt = :now",
+        ExpressionAttributeValues: {
+          ":addrList": filtered,
+          ":now": new Date().toISOString()
+        }
+      })
+    );
+
+    return { success: true, remaining: filtered.length };
   }
 
 }
