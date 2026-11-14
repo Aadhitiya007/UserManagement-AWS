@@ -13,7 +13,7 @@ const {
 const s3 = require("../config/s3");
 const fs = require("fs");
 const path = require("path");
-const { seedCatalog } = require("../scripts/seed-variant-catalog");
+const { seedCatalog } = require("../services/seedCatalogService");
 
 let activeProductRepo = new ProductRepository();
 let activeOrderRepo = new OrderRepository();
