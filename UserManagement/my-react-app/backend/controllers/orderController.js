@@ -328,3 +328,27 @@ exports.reclaimExpiredOrders = async (req, res) => {
     return res.status(500).json({ message: error.message });
   }
 };
+
+/**
+ * 9. Update Delivery Instructions
+ * PUT /api/orders/:id/delivery-instructions
+ */
+exports.updateDeliveryInstructions = async (req, res) => {
+  const { id } = req.params;
+  const { deliveryInstructions } = req.body;
+
+  if (deliveryInstructions === undefined) {
+    return res.status(400).json({ message: "deliveryInstructions is required." });
+  }
+
+  try {
+    const updated = await activeOrderRepo.updateDeliveryInstructions(id, req.user.id, deliveryInstructions);
+    return res.status(200).json({
+      message: "Delivery instructions updated successfully",
+      order: updated
+    });
+  } catch (error) {
+    const statusCode = error.statusCode || 500;
+    return res.status(statusCode).json({ message: error.message });
+  }
+};

@@ -278,9 +278,9 @@ const toolExecutors = {
           items = allItems.filter((p) => (p.category || "").toLowerCase() === category.toLowerCase());
         }
 
-        // If still empty, return top products
+        // If still empty, do NOT fall back to arbitrary products — return empty to avoid hallucinations
         if (items.length === 0) {
-          items = allItems.slice(0, 6);
+          items = [];
         }
       }
 

@@ -124,7 +124,7 @@ async function processChatMessage({ message, history = [], user = null }) {
       contents,
       config: {
         systemInstruction,
-        temperature: 0.3,
+        temperature: 0.1,
         tools: [{ functionDeclarations }]
       }
     });
@@ -171,7 +171,7 @@ async function processChatMessage({ message, history = [], user = null }) {
         contents,
         config: {
           systemInstruction,
-          temperature: 0.3
+          temperature: 0.1
         }
       });
 
@@ -179,16 +179,8 @@ async function processChatMessage({ message, history = [], user = null }) {
         followUpResponse.text ||
         followUpResponse.candidates?.[0]?.content?.parts?.[0]?.text ||
         (collectedProducts.length > 0
-          ? "Here are the top products I found for you in our catalog:"
-          : "I searched our store but couldn't find items matching that exact criteria.");
-
-      // Safety check: If tool executed with 0 results or query was shopping related, attach relevant products
-      if (collectedProducts.length === 0 && name === "searchProducts") {
-        const autoAttached = await toolExecutors.searchProducts({ query: message });
-        if (autoAttached && Array.isArray(autoAttached.products)) {
-          collectedProducts = autoAttached.products;
-        }
-      }
+          ? "Here are the exact products I found for you in our catalog:"
+          : "I searched our store catalog, but could not find items matching that exact search criteria.");
 
       return {
         reply: finalReply,
@@ -204,17 +196,19 @@ async function processChatMessage({ message, history = [], user = null }) {
       parts.find((p) => p.text)?.text ||
       "How can I assist your shopping today?";
 
-    // If direct reply hints at finding products, or message is shopping intent, attach matching products
+    // Only attach products if user message was specifically looking for a product
     const lowerDirect = directReply.toLowerCase();
-    const isShoppingQuery =
-      lowerDirect.includes("found") ||
-      lowerDirect.includes("product") ||
-      lowerDirect.includes("recommend") ||
-      lowerDirect.includes("here are") ||
-      lowerDirect.includes("check out") ||
+    const lowerMessage = message.toLowerCase();
+    const isSpecificShoppingSearch =
+      (lowerMessage.includes("show") ||
+        lowerMessage.includes("find") ||
+        lowerMessage.includes("looking for") ||
+        lowerMessage.includes("search") ||
+        lowerMessage.includes("buy") ||
+        lowerDirect.includes("found")) &&
       cleanSearchQuery(message).length >= 2;
 
-    if (isShoppingQuery) {
+    if (isSpecificShoppingSearch) {
       const autoAttached = await toolExecutors.searchProducts({ query: message });
       if (autoAttached && Array.isArray(autoAttached.products) && autoAttached.products.length > 0) {
         collectedProducts = autoAttached.products;

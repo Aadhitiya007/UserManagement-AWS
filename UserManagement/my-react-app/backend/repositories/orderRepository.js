@@ -13,7 +13,8 @@ const { docClient: defaultDocClient, TABLE_NAMES } = require("../config/dynamodb
 const ALLOWED_TRANSITIONS = {
   Pending: ["Processing", "Cancelled"],
   Processing: ["Shipped", "Cancelled"],
-  Shipped: ["Delivered", "Cancelled"],
+  Shipped: ["Out for delivery", "Delivered", "Cancelled"],
+  "Out for delivery": ["Delivered", "Cancelled"],
   Delivered: [],
   Cancelled: []
 };
@@ -47,6 +48,10 @@ class OrderRepository {
       paymentDetails: item.paymentDetails || {},
       paymentAttempts: Array.isArray(item.paymentAttempts) ? item.paymentAttempts : [],
       shippingAddress: item.shippingAddress || null,
+      courierName: item.courierName || null,
+      trackingNumber: item.trackingNumber || null,
+      deliveryInstructions: item.deliveryInstructions || null,
+      estimatedDelivery: item.estimatedDelivery || null,
       expiresAt: item.expiresAt !== undefined ? Number(item.expiresAt) : null,
       createdAt: item.createdAt,
       updatedAt: item.updatedAt
@@ -398,13 +403,14 @@ class OrderRepository {
             TableName: this.tableNames.ORDERS,
             Key: { orderId },
             UpdateExpression: "SET #status = :cancelled, updatedAt = :now",
-            ConditionExpression: "attribute_exists(orderId) AND #status IN (:pending, :processing, :shipped)",
+            ConditionExpression: "attribute_exists(orderId) AND #status IN (:pending, :processing, :shipped, :outForDelivery)",
             ExpressionAttributeNames: { "#status": "status" },
             ExpressionAttributeValues: {
               ":cancelled": "Cancelled",
               ":pending": "Pending",
               ":processing": "Processing",
               ":shipped": "Shipped",
+              ":outForDelivery": "Out for delivery",
               ":now": now
             }
           }
@@ -745,6 +751,40 @@ class OrderRepository {
       console.warn("reclaimExpiredPendingOrders warning:", err.message);
       return { reclaimedCount: 0, totalFound: 0, error: err.message };
     }
+  }
+
+  /**
+   * Update delivery instructions on an order
+   */
+  async updateDeliveryInstructions(orderId, userId, instructions) {
+    const order = await this.findById(orderId);
+    if (!order) {
+      const err = new Error("Order not found");
+      err.statusCode = 404;
+      throw err;
+    }
+
+    if (userId && order.userId && order.userId.toString() !== userId.toString()) {
+      const err = new Error("Access denied. Not your order.");
+      err.statusCode = 403;
+      throw err;
+    }
+
+    const sanitized = String(instructions || "").trim().slice(0, 500);
+
+    await this.docClient.send(
+      new UpdateCommand({
+        TableName: this.tableNames.ORDERS,
+        Key: { orderId },
+        UpdateExpression: "SET deliveryInstructions = :inst, updatedAt = :now",
+        ExpressionAttributeValues: {
+          ":inst": sanitized,
+          ":now": new Date().toISOString()
+        }
+      })
+    );
+
+    return this.findById(orderId);
   }
 }
 

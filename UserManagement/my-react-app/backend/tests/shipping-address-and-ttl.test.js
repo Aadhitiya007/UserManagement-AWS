@@ -36,6 +36,9 @@ class MockDocClient {
         if (values[":addr"] !== undefined) {
           item.shippingAddress = values[":addr"];
         }
+        if (values[":inst"] !== undefined) {
+          item.deliveryInstructions = values[":inst"];
+        }
         if (values[":now"]) {
           item.updatedAt = values[":now"];
         }
@@ -192,7 +195,28 @@ async function runTests() {
   assert.strictEqual(restoredProd.stock, 10);
   console.log("✓ PASS: orderRepo.reclaimExpiredPendingOrders restores stock for abandoned orders");
 
-  console.log("\n=== All Shipping Address & Stock TTL Tests Passed (5/5) ===\n");
+  // TEST 6: Update Delivery Instructions (Amazon feature)
+  const activeOrder = await orderRepo.createOrderWithStockDeduction({
+    userId: user.id,
+    userName: user.name,
+    userEmail: user.email,
+    rawProducts: [{ productId: "prod_1", quantity: 1 }],
+    productRepo,
+    shippingAddress: addr1
+  });
+
+  const updatedWithInstructions = await orderRepo.updateDeliveryInstructions(
+    activeOrder.orderId,
+    user.id,
+    "Please leave with security at tower 2. Do not ring bell after 2 PM."
+  );
+  assert.strictEqual(
+    updatedWithInstructions.deliveryInstructions,
+    "Please leave with security at tower 2. Do not ring bell after 2 PM."
+  );
+  console.log("✓ PASS: orderRepo.updateDeliveryInstructions updates instructions accurately");
+
+  console.log("\n=== All Shipping Address, TTL & Amazon Tracking Tests Passed (6/6) ===\n");
 }
 
 runTests().catch((err) => {
