@@ -11,7 +11,8 @@ const {
   getAdminStats,
   getOrderInvoice,
   updateOrderAddress,
-  reclaimExpiredOrders
+  reclaimExpiredOrders,
+  updateDeliveryInstructions
 } = require("../controllers/orderController");
 
 const orderLimiter = rateLimit({
@@ -28,6 +29,7 @@ router.get("/my-orders", verifyToken, getUserOrders);
 router.get("/", verifyToken, requireStaff, getAllOrders);
 router.get("/stats", verifyToken, requireStaff, getAdminStats);
 router.put("/:id/address", verifyToken, updateOrderAddress);
+router.put("/:id/delivery-instructions", verifyToken, updateDeliveryInstructions);
 router.put("/:id/status", verifyToken, requireStaff, updateOrderStatus);
 router.get("/:id/invoice", verifyToken, getOrderInvoice);
 

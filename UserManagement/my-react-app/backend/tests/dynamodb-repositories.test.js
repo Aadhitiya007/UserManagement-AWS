@@ -814,7 +814,7 @@ async function runTests() {
 
     const orderCancelUpdate = transactCmd.input.TransactItems[0].Update;
     assert.strictEqual(orderCancelUpdate.Key.orderId, "ord_cancel_me");
-    assert.ok(orderCancelUpdate.ConditionExpression.includes("#status IN (:pending, :processing, :shipped)"));
+    assert.ok(orderCancelUpdate.ConditionExpression.includes("#status IN (:pending, :processing, :shipped, :outForDelivery)"));
 
     const itemARestore = transactCmd.input.TransactItems[1].Update;
     assert.strictEqual(itemARestore.Key.productId, "p_itemA");
