@@ -1,18 +1,28 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import { API_URL } from "../../config/api";
-import { ShieldCheck, Mail, Lock, ArrowLeft, AlertCircle } from "lucide-react";
+import { ShieldCheck, Mail, Lock, ArrowLeft, AlertCircle, ShoppingBag } from "lucide-react";
 
 function AdminLogin() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
+  const [isCustomerBlocked, setIsCustomerBlocked] = useState(false);
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
+
+  useEffect(() => {
+    const storedUser = JSON.parse(localStorage.getItem("user") || "null");
+    const token = localStorage.getItem("token");
+    if (token && storedUser && (storedUser.role === "admin" || storedUser.role === "manager")) {
+      navigate("/admin/dashboard", { replace: true });
+    }
+  }, [navigate]);
 
   async function handleSubmit(e) {
     e.preventDefault();
     setError("");
+    setIsCustomerBlocked(false);
     setLoading(true);
 
     try {
@@ -25,6 +35,9 @@ function AdminLogin() {
       const data = await res.json();
 
       if (!res.ok) {
+        if (res.status === 403) {
+          setIsCustomerBlocked(true);
+        }
         throw new Error(data.message || "Staff authentication failed.");
       }
 
@@ -110,12 +123,35 @@ function AdminLogin() {
                 marginBottom: "20px",
                 fontSize: "0.85rem",
                 display: "flex",
-                alignItems: "flex-start",
-                gap: "8px"
+                flexDirection: "column",
+                gap: "10px"
               }}
             >
-              <AlertCircle size={16} style={{ flexShrink: 0, marginTop: "2px" }} />
-              <span>{error}</span>
+              <div style={{ display: "flex", alignItems: "flex-start", gap: "8px" }}>
+                <AlertCircle size={16} style={{ flexShrink: 0, marginTop: "2px" }} />
+                <span>{error}</span>
+              </div>
+              {isCustomerBlocked && (
+                <Link
+                  to="/login"
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    gap: "6px",
+                    marginTop: "4px",
+                    padding: "8px 14px",
+                    background: "var(--color-primary)",
+                    color: "#ffffff",
+                    borderRadius: "var(--radius-sm)",
+                    textDecoration: "none",
+                    fontWeight: 700,
+                    fontSize: "0.82rem"
+                  }}
+                >
+                  <ShoppingBag size={15} /> Open Customer Storefront Login →
+                </Link>
+              )}
             </div>
           )}
 
