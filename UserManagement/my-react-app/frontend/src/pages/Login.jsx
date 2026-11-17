@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import { 
   Mail, 
@@ -112,6 +112,7 @@ function Login() {
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState("");
+  const [isStaffBlocked, setIsStaffBlocked] = useState(false);
   const [loading, setLoading] = useState(false);
   const [sessionExpired, setSessionExpired] = useState(() => {
     return new URLSearchParams(window.location.search).get("expired") === "1";
@@ -120,9 +121,22 @@ function Login() {
   const navigate = useNavigate();
   const { switchUser } = useCart();
 
+  useEffect(() => {
+    const storedUser = JSON.parse(localStorage.getItem("user") || "null");
+    const token = localStorage.getItem("token");
+    if (token && storedUser) {
+      if (storedUser.role === "admin" || storedUser.role === "manager") {
+        navigate("/admin/dashboard", { replace: true });
+      } else {
+        navigate("/products", { replace: true });
+      }
+    }
+  }, [navigate]);
+
   async function handleSubmit(e) {
     e.preventDefault();
     setError("");
+    setIsStaffBlocked(false);
     setSessionExpired(false);
     setLoading(true);
 
@@ -136,6 +150,9 @@ function Login() {
       const data = await res.json();
 
       if (!res.ok) {
+        if (res.status === 403 && (data.portal === "staff" || data.portalRedirect)) {
+          setIsStaffBlocked(true);
+        }
         throw new Error(data.message || "Login failed");
       }
 
@@ -148,11 +165,7 @@ function Login() {
         switchUser(data.user);
       }
 
-      if (data.user?.role === "admin" || data.user?.role === "manager") {
-        navigate("/admin/dashboard");
-      } else {
-        navigate("/products");
-      }
+      navigate("/products");
     } catch (err) {
       setError(err.message);
     } finally {
@@ -205,11 +218,34 @@ function Login() {
               fontSize: "0.85rem",
               marginBottom: "18px",
               display: "flex",
-              alignItems: "center",
+              flexDirection: "column",
               gap: "8px"
             }}>
-              <AlertCircle size={16} />
-              <span>{error}</span>
+              <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                <AlertCircle size={16} style={{ flexShrink: 0 }} />
+                <span>{error}</span>
+              </div>
+              {isStaffBlocked && (
+                <Link
+                  to="/admin/login"
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    gap: "6px",
+                    marginTop: "4px",
+                    padding: "8px 14px",
+                    background: "var(--primary)",
+                    color: "#ffffff",
+                    borderRadius: "8px",
+                    textDecoration: "none",
+                    fontWeight: 700,
+                    fontSize: "0.82rem"
+                  }}
+                >
+                  <ShieldCheck size={15} /> Open Staff & Manager Portal →
+                </Link>
+              )}
             </div>
           )}
 

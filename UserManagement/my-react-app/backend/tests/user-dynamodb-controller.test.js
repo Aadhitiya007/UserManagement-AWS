@@ -237,7 +237,7 @@ async function runControllerTests() {
     assert.ok(res.body.message.includes("required"));
   });
 
-  await test("authController.login: authenticates valid password and returns 200 with JWT", async () => {
+  await test("authController.login: authenticates valid password and returns 200 with JWT for customer", async () => {
     const mockRepo = new InMemoryUserRepository();
     authController.setUserRepository(mockRepo);
 
@@ -246,7 +246,7 @@ async function runControllerTests() {
       name: "David Login",
       email: "david@example.com",
       password: hashedPassword,
-      role: "admin"
+      role: "customer"
     });
 
     const { req, res } = createMockReqRes({
@@ -261,11 +261,83 @@ async function runControllerTests() {
     assert.strictEqual(res.statusCode, 200);
     assert.strictEqual(res.body.message, "Login successful");
     assert.ok(res.body.token);
-    assert.strictEqual(res.body.user.role, "admin");
+    assert.strictEqual(res.body.user.role, "customer");
 
     const decoded = jwt.verify(res.body.token, process.env.JWT_SECRET);
     assert.strictEqual(decoded.email, "david@example.com");
-    assert.strictEqual(decoded.role, "admin");
+    assert.strictEqual(decoded.role, "customer");
+  });
+
+  await test("authController.login: blocks admin and manager from customer portal with 403", async () => {
+    const mockRepo = new InMemoryUserRepository();
+    authController.setUserRepository(mockRepo);
+
+    const hashedPassword = await bcrypt.hash("adminPassword", 10);
+    await mockRepo.create({
+      name: "Admin Alice",
+      email: "alice_admin@example.com",
+      password: hashedPassword,
+      role: "admin"
+    });
+    await mockRepo.create({
+      name: "Manager Bob",
+      email: "bob_manager@example.com",
+      password: hashedPassword,
+      role: "manager"
+    });
+
+    // Attempt Admin login via user portal
+    const { req: reqAdmin, res: resAdmin } = createMockReqRes({
+      body: { email: "alice_admin@example.com", password: "adminPassword" }
+    });
+    await authController.login(reqAdmin, resAdmin);
+    assert.strictEqual(resAdmin.statusCode, 403);
+    assert.strictEqual(resAdmin.body.portal, "staff");
+    assert.strictEqual(resAdmin.body.portalRedirect, "/admin/login");
+
+    // Attempt Manager login via user portal
+    const { req: reqManager, res: resManager } = createMockReqRes({
+      body: { email: "bob_manager@example.com", password: "adminPassword" }
+    });
+    await authController.login(reqManager, resManager);
+    assert.strictEqual(resManager.statusCode, 403);
+    assert.strictEqual(resManager.body.portal, "staff");
+    assert.strictEqual(resManager.body.portalRedirect, "/admin/login");
+  });
+
+  await test("authController.staffLogin: authenticates staff and blocks regular customer with 403", async () => {
+    const mockRepo = new InMemoryUserRepository();
+    authController.setUserRepository(mockRepo);
+
+    const hashedPassword = await bcrypt.hash("secureStaffPass", 10);
+    await mockRepo.create({
+      name: "Staff Carol",
+      email: "carol_staff@example.com",
+      password: hashedPassword,
+      role: "manager"
+    });
+    await mockRepo.create({
+      name: "Customer Dan",
+      email: "dan_cust@example.com",
+      password: hashedPassword,
+      role: "customer"
+    });
+
+    // Customer trying staff portal
+    const { req: reqCust, res: resCust } = createMockReqRes({
+      body: { email: "dan_cust@example.com", password: "secureStaffPass" }
+    });
+    await authController.staffLogin(reqCust, resCust);
+    assert.strictEqual(resCust.statusCode, 403);
+
+    // Staff member on staff portal
+    const { req: reqStaff, res: resStaff } = createMockReqRes({
+      body: { email: "carol_staff@example.com", password: "secureStaffPass" }
+    });
+    await authController.staffLogin(reqStaff, resStaff);
+    assert.strictEqual(resStaff.statusCode, 200);
+    assert.strictEqual(resStaff.body.user.role, "manager");
+    assert.ok(resStaff.body.token);
   });
 
   await test("authController.login: rejects invalid password with 400", async () => {

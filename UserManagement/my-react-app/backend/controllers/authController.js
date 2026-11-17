@@ -169,6 +169,28 @@ exports.login = async (req, res) => {
       return res.status(400).json({ message: "Invalid email or password" });
     }
 
+    // STRICT PORTAL GATE: Administrators and Managers must only log in via the Staff Portal (/admin/login)
+    if (user.role === "admin" || user.role === "manager") {
+      logAuditEvent({
+        category: "AUTH",
+        action: "USER_LOGIN_BLOCKED",
+        status: "WARNING",
+        actor: {
+          userId: user.id || user._id,
+          email: user.email,
+          role: user.role,
+          ip: req.ip || req.connection?.remoteAddress
+        },
+        target: { type: "UserPortal" },
+        details: { reason: "Admin/Manager attempted user login portal access" }
+      });
+      return res.status(403).json({
+        message: "Access Denied: Administrators and Managers must log in through the Staff Portal.",
+        portal: "staff",
+        portalRedirect: "/admin/login"
+      });
+    }
+
     logAuditEvent({
       category: "AUTH",
       action: "USER_LOGIN",
