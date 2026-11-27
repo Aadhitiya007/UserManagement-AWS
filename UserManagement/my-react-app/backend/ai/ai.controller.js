@@ -33,6 +33,7 @@ async function handleChat(req, res) {
       success: true,
       reply: result.reply,
       products: result.products || [],
+      orders: result.orders || [],
       source: result.source,
       timestamp: new Date().toISOString()
     });
