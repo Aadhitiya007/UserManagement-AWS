@@ -119,7 +119,7 @@ async function processChatMessage({ message, history = [], user = null }) {
     });
 
     // 3. Initial generation request with function declarations
-    const response = await client.models.generateContent({
+    let response = await client.models.generateContent({
       model: modelName,
       contents,
       config: {
@@ -129,14 +129,23 @@ async function processChatMessage({ message, history = [], user = null }) {
       }
     });
 
-    // 4. Check if Gemini requested a function call
-    const candidate = response.candidates?.[0];
-    const parts = candidate?.content?.parts || [];
-    const functionCallPart = parts.find((p) => p.functionCall);
+    // 4. Multi-step tool execution loop (up to 3 chained tool turns)
+    const MAX_TOOL_STEPS = 3;
+    let step = 0;
+    let executedTools = false;
 
-    if (functionCallPart && functionCallPart.functionCall) {
+    while (step < MAX_TOOL_STEPS) {
+      const candidate = response.candidates?.[0];
+      const parts = candidate?.content?.parts || [];
+      const functionCallPart = parts.find((p) => p.functionCall);
+      if (!functionCallPart || !functionCallPart.functionCall) {
+        break;
+      }
+
+      executedTools = true;
+      step++;
       const { name, args } = functionCallPart.functionCall;
-      console.log(`[AI Service] Executing tool: ${name} with args:`, JSON.stringify(args));
+      console.log(`[AI Service] Executing tool (step ${step}): ${name} with args:`, JSON.stringify(args));
 
       let functionResult = { error: `Function ${name} not found` };
       if (typeof toolExecutors[name] === "function") {
@@ -144,7 +153,8 @@ async function processChatMessage({ message, history = [], user = null }) {
         if (functionResult && Array.isArray(functionResult.products)) {
           collectedProducts = functionResult.products;
         } else if (functionResult && functionResult.id) {
-          collectedProducts = [functionResult];
+          const exists = collectedProducts.some((p) => p.id === functionResult.id);
+          if (!exists) collectedProducts = [functionResult, ...collectedProducts];
         }
 
         if (functionResult && Array.isArray(functionResult.orders)) {
@@ -152,7 +162,7 @@ async function processChatMessage({ message, history = [], user = null }) {
         }
       }
 
-      // 5. Send function execution output back to Gemini for conversational summarization
+      // 5. Send function execution output back to Gemini (keep tools available for chained calls)
       contents.push(candidate.content);
       contents.push({
         role: "user",
@@ -166,18 +176,21 @@ async function processChatMessage({ message, history = [], user = null }) {
         ]
       });
 
-      const followUpResponse = await client.models.generateContent({
+      response = await client.models.generateContent({
         model: modelName,
         contents,
         config: {
           systemInstruction,
-          temperature: 0.1
+          temperature: 0.1,
+          tools: step < MAX_TOOL_STEPS ? [{ functionDeclarations }] : undefined
         }
       });
+    }
 
+    if (executedTools) {
       const finalReply =
-        followUpResponse.text ||
-        followUpResponse.candidates?.[0]?.content?.parts?.[0]?.text ||
+        response.text ||
+        response.candidates?.[0]?.content?.parts?.find((p) => p.text)?.text ||
         (collectedProducts.length > 0
           ? "Here are the exact products I found for you in our catalog:"
           : "I searched our store catalog, but could not find items matching that exact search criteria.");
@@ -191,6 +204,7 @@ async function processChatMessage({ message, history = [], user = null }) {
     }
 
     // 6. Direct conversational response (no tool was called by model)
+    const parts = response.candidates?.[0]?.content?.parts || [];
     const directReply =
       response.text ||
       parts.find((p) => p.text)?.text ||

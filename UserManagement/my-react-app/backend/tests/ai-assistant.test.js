@@ -210,9 +210,44 @@ async function runTests() {
     const bobRes = await toolExecutors.getMyOrders({}, { id: "user_bob", name: "Bob" });
     assert.strictEqual(bobRes.count, 0, "Bob must never see Alice's orders");
     console.log("✓ PASS: User order isolation guarantees zero cross-user leakage");
+
+    // 12. handleChat returns orders array for order tracking queries
+    let orderStatusCode = null;
+    let orderJsonRes = null;
+    const orderReq = {
+      body: { message: "Track my recent order" },
+      user: { id: "user_alice", name: "Alice" }
+    };
+    const orderRes = {
+      status: (code) => {
+        orderStatusCode = code;
+        return { json: (data) => { orderJsonRes = data; } };
+      }
+    };
+    await handleChat(orderReq, orderRes);
+    assert.strictEqual(orderStatusCode, 200);
+    assert.ok(Array.isArray(orderJsonRes.orders), "handleChat must include orders array");
+    assert.strictEqual(orderJsonRes.orders.length, 1);
+    console.log("✓ PASS: handleChat returns orders array for order tracking queries");
   }
 
-  console.log("\n=== AI Assistant Tests: All 11/11 passed ===\n");
+  // 13. inStockOnly strictly returns empty when all matches are out of stock
+  {
+    const res = await toolExecutors.searchProducts({ query: "mouse", inStockOnly: true });
+    assert.strictEqual(res.count, 0, "Should return 0 items when matching mouse is out of stock");
+    assert.strictEqual(res.products.length, 0);
+    console.log("✓ PASS: toolExecutors.searchProducts strictly enforces inStockOnly when 0 in stock");
+  }
+
+  // 14. Typo tolerance (fuzzy match: "hedphone" -> "Wireless ANC Headphones")
+  {
+    const res = await toolExecutors.searchProducts({ query: "hedphone" });
+    assert.ok(res.count >= 1, "Fuzzy match should handle 1-character typo");
+    assert.strictEqual(res.products[0].name, "Wireless ANC Headphones");
+    console.log("✓ PASS: toolExecutors.searchProducts handles 1-edit typo queries");
+  }
+
+  console.log("\n=== AI Assistant Tests: All 14/14 passed ===\n");
 }
 
 runTests().catch((err) => {

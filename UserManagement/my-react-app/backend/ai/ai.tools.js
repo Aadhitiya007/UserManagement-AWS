@@ -174,6 +174,67 @@ const functionDeclarations = [
 ];
 
 /**
+ * Synonym expansion map for common e-commerce search terms
+ */
+const SYNONYM_MAP = {
+  tws: ["earbud", "earbuds", "wireless"],
+  earpods: ["earbud", "earbuds", "earphone"],
+  airpods: ["earbud", "earbuds", "wireless"],
+  notebook: ["laptop"],
+  ultrabook: ["laptop"],
+  smartphone: ["phone", "mobile"],
+  cellphone: ["phone", "mobile"],
+  display: ["monitor", "tv"],
+  screen: ["monitor", "tv"],
+  anc: ["noise", "cancelling"],
+  rgb: ["gaming", "keyboard", "mouse"]
+};
+
+/**
+ * Fast bounded Levenshtein check (returns true if edit distance <= 1) for typo tolerance
+ */
+function isOneEditAway(a, b) {
+  if (a === b) return true;
+  const lenA = a.length;
+  const lenB = b.length;
+  if (Math.abs(lenA - lenB) > 1) return false;
+
+  let i = 0;
+  let j = 0;
+  let edits = 0;
+  while (i < lenA && j < lenB) {
+    if (a[i] === b[j]) {
+      i++;
+      j++;
+    } else {
+      edits++;
+      if (edits > 1) return false;
+      if (lenA > lenB) i++;
+      else if (lenB > lenA) j++;
+      else {
+        i++;
+        j++;
+      }
+    }
+  }
+  if (i < lenA || j < lenB) edits++;
+  return edits <= 1;
+}
+
+/**
+ * Checks whether any word in text is within 1 edit of token (only for tokens >= 5 chars)
+ */
+function hasFuzzyWordMatch(text, token) {
+  if (!text || !token || token.length < 5) return false;
+  const stemToken = token.replace(/s$/, "");
+  const words = text.split(/[^a-z0-9]+/).filter((w) => w.length >= 4);
+  return words.some((w) => {
+    const stemW = w.replace(/s$/, "");
+    return isOneEditAway(w, token) || isOneEditAway(stemW, stemToken);
+  });
+}
+
+/**
  * Tool Execution Handlers
  */
 const toolExecutors = {
@@ -182,37 +243,44 @@ const toolExecutors = {
     let maxPrice = args?.maxPrice !== undefined ? Number(args.maxPrice) : extractPriceFromQuery(rawQuery);
     const inStockOnly = Boolean(args?.inStockOnly);
 
-    // Normalize category
-    let category = args?.category ? args.category.trim() : null;
-    if (category) {
-      const lowerCat = category.toLowerCase();
-      category = CATEGORY_MAP[lowerCat] || category;
+    // Normalize explicit category vs inferred category
+    let explicitCategory = args?.category ? args.category.trim() : null;
+    if (explicitCategory) {
+      const lowerCat = explicitCategory.toLowerCase();
+      explicitCategory = CATEGORY_MAP[lowerCat] || explicitCategory;
     }
 
     // Clean search terms
     const cleanedQuery = cleanSearchQuery(rawQuery);
 
-    // If query itself suggests a category (e.g., "headphone" -> Audio)
-    if (!category) {
+    // Infer category from query only as a fallback when no direct token match exists
+    let inferredCategory = null;
+    if (!explicitCategory) {
       const words = (cleanedQuery || rawQuery).toLowerCase().split(/\s+/);
       for (const w of words) {
         if (CATEGORY_MAP[w]) {
-          category = CATEGORY_MAP[w];
+          inferredCategory = CATEGORY_MAP[w];
           break;
         }
       }
     }
 
     try {
-      // Fetch up to 100 products from repo to do smart multi-attribute scoring
-      const allRes = await activeProductRepo.list({ limit: 100 });
-      let allItems = allRes.products || [];
-
-      // If repo returned 0 with limit, try with default options
-      if (allItems.length === 0) {
-        const fallbackRes = await activeProductRepo.list({});
-        allItems = fallbackRes.products || [];
-      }
+      // Paginate through catalog (up to 500 items) so large catalogs (200+ products) are fully searchable
+      let allItems = [];
+      let cursor = null;
+      let pageCount = 0;
+      do {
+        const pageRes = await activeProductRepo.list({
+          limit: 100,
+          ...(cursor ? { nextCursor: cursor } : {})
+        });
+        const batch = pageRes.products || [];
+        if (batch.length === 0) break;
+        allItems.push(...batch);
+        cursor = pageRes.nextCursor || null;
+        pageCount++;
+      } while (cursor && allItems.length < 500 && pageCount < 5);
 
       let items = [];
 
@@ -222,7 +290,7 @@ const toolExecutors = {
           .split(/\s+/)
           .filter((t) => t.length >= 2);
 
-        // Score each item based on name, category, description, searchTerms, and budget
+        // Score each item based on exact match, fuzzy typo match, synonyms, category, and budget
         const scored = allItems.map((prod) => {
           let relevance = 0;
           const pName = (prod.name || "").toLowerCase();
@@ -231,7 +299,7 @@ const toolExecutors = {
           const pTerms = (prod.searchTerms || "").toLowerCase();
           const pPrice = Number(prod.effectivePrice || prod.price || 0);
 
-          if (category && pCat.includes(category.toLowerCase())) {
+          if (explicitCategory && pCat.includes(explicitCategory.toLowerCase())) {
             relevance += 30;
           }
 
@@ -240,6 +308,13 @@ const toolExecutors = {
             else if (pCat.includes(token)) relevance += 20;
             else if (pTerms.includes(token)) relevance += 15;
             else if (pDesc.includes(token)) relevance += 8;
+            else if (hasFuzzyWordMatch(pName, token)) relevance += 22;
+            else if (hasFuzzyWordMatch(pDesc, token)) relevance += 6;
+            else if (SYNONYM_MAP[token]) {
+              const syns = SYNONYM_MAP[token];
+              if (syns.some((s) => pName.includes(s))) relevance += 25;
+              else if (syns.some((s) => pDesc.includes(s) || pTerms.includes(s))) relevance += 12;
+            }
           }
 
           // Only adjust for budget/stock if product has genuine topical relevance
@@ -274,8 +349,9 @@ const toolExecutors = {
           } else {
             items = matches;
           }
-        } else if (category) {
-          items = allItems.filter((p) => (p.category || "").toLowerCase() === category.toLowerCase());
+        } else if (explicitCategory || inferredCategory) {
+          const targetCat = (explicitCategory || inferredCategory).toLowerCase();
+          items = allItems.filter((p) => (p.category || "").toLowerCase() === targetCat);
         }
 
         // If still empty, do NOT fall back to arbitrary products — return empty to avoid hallucinations
@@ -285,10 +361,7 @@ const toolExecutors = {
       }
 
       if (inStockOnly) {
-        const inStockItems = items.filter((p) => Number(p.stock) > 0);
-        if (inStockItems.length > 0) {
-          items = inStockItems;
-        }
+        items = items.filter((p) => Number(p.stock) > 0);
       }
 
       // Cap at 6 products
@@ -380,7 +453,7 @@ const toolExecutors = {
         if (!o) return false;
         const isPaid = (o.paymentStatus || "").toLowerCase() === "paid";
         const isCod = (o.paymentMethod || "").toLowerCase() === "cashondelivery";
-        const isFulfillmentActive = ["processing", "shipped", "delivered"].includes(
+        const isFulfillmentActive = ["processing", "shipped", "out for delivery", "delivered"].includes(
           (o.status || "").toLowerCase()
         );
         if (o.paymentStatus === undefined && o.status === undefined) return true;
